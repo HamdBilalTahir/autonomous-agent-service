@@ -136,6 +136,18 @@
 > - **Files:**
 >   - `lib/graph/prompts/pmPrompts.ts`
 
+> ### Legacy Code Cleanup
+>
+> - **What changed:** Removed unused files (`lib/prompts.ts`, `lib/ollama.ts`, `lib/gemini.ts`, `lib/types.ts`) and updated the health check endpoint.
+> - **Why:** Remove deprecated monolithic agent components and ensure the codebase only contains active LangGraph-based logic.
+> - **Files:**
+>   - `app/api/test/route.ts`
+>   - `lib/prompts.ts` (deleted)
+>   - `lib/ollama.ts` (deleted)
+>   - `lib/gemini.ts` (deleted)
+>   - `lib/types.ts` (deleted)
+
+
 > ### Improved Branch Naming Convention
 >
 > - **What changed:** Updated branch naming to use ticket title slug instead of timestamp (e.g., `feature/kuailabs-13-add-login` instead of `feature/kuailabs-13-123456789`).

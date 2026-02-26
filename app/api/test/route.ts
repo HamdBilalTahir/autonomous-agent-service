@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AutonomousAgent } from "../../../lib/agent";
+import { JiraService } from "../../../lib/jira";
+import { GitHubService } from "../../../lib/github";
 
 export const maxDuration = 300;
 
@@ -16,12 +17,12 @@ export async function GET(req: NextRequest) {
     TARGET_GITHUB_REPO: process.env.TARGET_GITHUB_REPO
       ? "configured"
       : "missing (using default)",
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY ? "configured" : "missing",
     HF_API_KEY: process.env.HF_API_KEY ? "configured" : "missing (optional)",
   };
 
   console.log("Environment Status Check:", JSON.stringify(envStatus, null, 2));
 
-  let agentStatus = "not initialized";
   let health: any = {
     github: "unknown",
     jira: "unknown",
@@ -29,29 +30,40 @@ export async function GET(req: NextRequest) {
   };
 
   try {
-    const agent = new AutonomousAgent(
-      process.env.GITHUB_TOKEN || "",
+    const jira = new JiraService(
       process.env.JIRA_BASE_URL || "",
       process.env.JIRA_EMAIL || "",
       process.env.JIRA_API_TOKEN || "",
-      process.env.OLLAMA_URL || "http://localhost:11434",
-      process.env.TARGET_GITHUB_OWNER || "HamdBilalTahir",
-      process.env.TARGET_GITHUB_REPO || "autonomous-agent-service",
-      process.env.HF_API_KEY,
     );
-    agentStatus = "initialized";
 
-    // Perform health checks
-    health = await agent.checkHealth();
+    const github = new GitHubService(process.env.GITHUB_TOKEN || "");
+
+    const [jiraHealth, githubHealth] = await Promise.all([
+      jira.checkHealth(),
+      github.checkHealth(),
+    ]);
+
+    let ollamaHealth = "disabled";
+    if (process.env.OLLAMA_URL) {
+      try {
+        const response = await fetch(`${process.env.OLLAMA_URL}/api/tags`);
+        ollamaHealth = response.ok ? "healthy" : "unreachable";
+      } catch (e) {
+        ollamaHealth = "unreachable";
+      }
+    }
+
+    health = {
+      jira: jiraHealth,
+      github: githubHealth,
+      ollama: ollamaHealth,
+    };
   } catch (e: any) {
-    agentStatus = `failed: ${e.message}`;
+    console.error("Health check failed:", e);
   }
 
   const overallStatus =
-    agentStatus === "initialized" &&
-    health.github &&
-    health.jira &&
-    health.ollama
+    health.github && health.jira && health.ollama !== "unreachable"
       ? "healthy"
       : "degraded";
 
@@ -60,7 +72,6 @@ export async function GET(req: NextRequest) {
       status: overallStatus,
       timestamp: new Date().toISOString(),
       environment: envStatus,
-      agent: agentStatus,
       services: health,
     },
     { status: overallStatus === "healthy" ? 200 : 503 },
