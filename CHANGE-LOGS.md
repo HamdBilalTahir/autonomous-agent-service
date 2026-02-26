@@ -6,12 +6,13 @@
 
 ---
 
-> ### Fix Vercel Serverless Functions Detection
+> ### Migrated API to Next.js App Router Structure
 >
-> - **What changed:** Updated API files to use default export pattern instead of App Router syntax, and added `api/test.ts` to `vercel.json`.
-> - **Why:** Resolves Vercel deployment error where functions were not recognized and ensures consistent configuration.
+> - **What changed:** Moved API functions from `api/` to `app/api/` and removed `vercel.json`.
+> - **Why:** Align with standard Next.js App Router conventions and fix Vercel deployment issues caused by conflicting configuration.
 > - **Files:**
->   - `api/process-ticket.ts`
->   - `api/webhook.ts`
->   - `api/test.ts`
->   - `vercel.json`
+>   - `api/` (deleted)
+>   - `app/api/process-ticket/route.ts` (created)
+>   - `app/api/webhook/route.ts` (created)
+>   - `app/api/test/route.ts` (created)
+>   - `vercel.json` (deleted)
