@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AutonomousAgent } from "../../../lib/agent";
+import { graph } from "../../../lib/graph";
+import { JiraService } from "../../../lib/jira";
+import { GitHubService } from "../../../lib/github";
 
 export const maxDuration = 300;
 
@@ -7,109 +9,122 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    const agent = new AutonomousAgent(
-      process.env.GITHUB_TOKEN || "",
+    // Initialize Services
+    const jira = new JiraService(
       process.env.JIRA_BASE_URL || "",
       process.env.JIRA_EMAIL || "",
       process.env.JIRA_API_TOKEN || "",
-      process.env.OLLAMA_URL || "http://localhost:11434",
-      process.env.TARGET_GITHUB_OWNER || "HamdBilalTahir",
-      process.env.TARGET_GITHUB_REPO || "autonomous-agent-service",
-      process.env.HF_API_KEY,
-      process.env.GEMINI_API_KEY,
-      (process.env.AI_PROVIDER as "ollama" | "gemini") || "ollama",
-      process.env.GEMINI_MODEL,
     );
 
-    // Check for self-triggering loop
-    const triggeredByAccountId = body.user?.accountId;
-    if (triggeredByAccountId) {
-      const agentUser = await agent.getCurrentUser();
-      const agentAccountId = agentUser?.accountId;
+    const github = new GitHubService(process.env.GITHUB_TOKEN || "");
+    const targetOwner = process.env.TARGET_GITHUB_OWNER || "HamdBilalTahir";
+    const targetRepo =
+      process.env.TARGET_GITHUB_REPO || "autonomous-agent-service";
 
-      // Only ignore if it's the agent AND it's NOT an issue creation event
-      // We want to process tickets created by the agent (e.g. for testing)
-      if (
-        agentAccountId &&
-        triggeredByAccountId === agentAccountId &&
-        body.webhookEvent !== "jira:issue_created" &&
-        body.webhookEvent !== "issue_created"
-      ) {
-        console.log(
-          `[Webhook] Ignoring self-triggered update from agent (accountId: ${agentAccountId}, event: ${body.webhookEvent})`,
-        );
-        return NextResponse.json({
-          status: "ignored",
-          message: "Ignored self-triggered update",
-        });
-      }
-    }
-
-    // Validate payload and check if ticket should be processed
-    const shouldProcess = agent.shouldProcessTicket(body);
-    console.log(
-      `[Webhook] Payload received. Should process: ${shouldProcess}`,
-      {
-        event: body.webhookEvent,
-        issueKey: body.issue?.key,
-      },
-    );
-
-    if (!shouldProcess) {
+    // Basic validation
+    if (!body.issue || !body.issue.key) {
       return NextResponse.json({
         status: "ignored",
-        message: "Webhook ignored (criteria not met)",
+        message: "No issue key found",
       });
     }
 
-    // Extract ticket ID (assuming standard Jira payload structure)
-    // Jira issue key is usually in issue.key
-    const ticketId = body.issue?.key;
+    const ticketId = body.issue.key;
+    const summary = body.issue.fields.summary;
+    const description = body.issue.fields.description || "";
+    const status = body.issue.fields.status.name;
+    const labels = body.issue.fields.labels || [];
 
-    if (ticketId) {
-      // Trigger asynchronous processing
-      // Note: In serverless, we might need waitUntil.
-      // For standard Node, we can just not await.
-      // We log errors inside the promise chain.
-      console.log(
-        `[Webhook] Starting SYNC processing (DEBUG MODE) for ticket: ${ticketId}`,
-      );
-
-      try {
-        const result = await agent.processTicket(ticketId);
-        console.log(
-          `[Webhook] Sync processing for ${ticketId} finished:`,
-          result,
-        );
-        return NextResponse.json({
-          status: "processed",
-          message: `Ticket ${ticketId} processed`,
-          result: result,
-        });
-      } catch (err) {
-        console.error(`[Webhook] Sync processing for ${ticketId} failed:`, err);
-        return NextResponse.json(
-          {
-            status: "error",
-            message: `Ticket ${ticketId} failed processing`,
-            error: String(err),
-          },
-          { status: 500 },
-        );
-      }
+    // Filter: Only process if label 'ai-agent' is present
+    if (!labels.includes("ai-agent")) {
+      console.log(`[Webhook] Ignored ${ticketId}: Missing 'ai-agent' label`);
+      return NextResponse.json({
+        status: "ignored",
+        message: "Missing 'ai-agent' label",
+      });
     }
 
-    return NextResponse.json({
-      status: "ignored",
-      message: "No ticket ID found in payload",
+    // Filter: Ignore if already processed or in progress
+    if (["In Progress", "In Review", "Done"].includes(status)) {
+      console.log(`[Webhook] Ignored ${ticketId}: Status is ${status}`);
+      return NextResponse.json({
+        status: "ignored",
+        message: `Ticket status is ${status}`,
+      });
+    }
+
+    console.log(`[Webhook] Processing ticket ${ticketId}: ${summary}`);
+    console.time("GraphExecution");
+
+    // Transition to In Progress
+    await jira.transitionTicket(ticketId, "In Progress");
+
+    // Fetch Codebase Tree
+    const structure = await github.getRepoStructure(targetOwner, targetRepo);
+    const codebaseTree = structure.join("\n");
+
+    // Invoke Graph
+    console.log("[Webhook] Invoking LangGraph...");
+    let finalState: any = {};
+    const stream = await graph.stream({
+      ticketSummary: summary,
+      ticketDescription:
+        typeof description === "string"
+          ? description
+          : JSON.stringify(description),
+      codebaseTree,
     });
-  } catch (error) {
-    console.error("Error processing webhook:", error);
+
+    for await (const chunk of stream) {
+      const nodeName = Object.keys(chunk)[0];
+      const chunkData = (chunk as Record<string, any>)[nodeName];
+      console.log(`\n[Graph Transition] Finished Node: ${nodeName}`);
+      console.log(
+        `[Current State Snapshot]:`,
+        JSON.stringify(chunkData, null, 2),
+      );
+      finalState = { ...finalState, ...chunkData };
+    }
+    console.timeEnd("GraphExecution");
+
+    const { executionPlan, generatedCode } = finalState;
+    console.log("[Webhook] Graph execution completed.");
+
+    if (!generatedCode || generatedCode.length === 0) {
+      console.log("[Webhook] No code generated.");
+      await jira.addComment(
+        ticketId,
+        "AI Analysis completed but no code was generated.",
+      );
+      return NextResponse.json({
+        status: "processed",
+        message: "No code generated",
+      });
+    }
+
+    const pr = await github.processChangesAndCreatePR(
+      targetOwner,
+      targetRepo,
+      ticketId,
+      summary,
+      generatedCode,
+      executionPlan || { featureScope: "", implementationInstructions: "" },
+    );
+
+    console.log(`[Webhook] PR created: ${pr.html_url}`);
+
+    // Update Jira
+    await jira.linkPRAndTransitionTicket(ticketId, pr.html_url, "In Review");
+
+    return NextResponse.json({
+      status: "success",
+      ticketId,
+      prUrl: pr.html_url,
+    });
+  } catch (error: any) {
+    console.error("[Webhook] Error:", error);
     return NextResponse.json(
-      {
-        status: "error",
-        message: "Internal Server Error",
-      },
+      { status: "error", message: error.message },
       { status: 500 },
     );
   }

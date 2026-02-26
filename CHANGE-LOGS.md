@@ -6,6 +6,95 @@
 
 ---
 
+> ### LangGraph State Definition
+>
+> - **What changed:** Defined the shared `AgentState` interface and installed LangGraph dependencies to enable multi-agent orchestration.
+> - **Why:** Establish the shared memory structure required for the new Product Manager and Frontend Engineer agents to collaborate.
+> - **Files:**
+>   - `lib/graph/state.ts`
+>   - `package.json`
+
+> ### PM/Architect Agent Node
+>
+> - **What changed:** Implemented the Product Manager agent node (`pmNode`) using Gemini and structured output (Zod) to generate execution plans.
+> - **Why:** Enable the "thinking" phase where the agent plans the architecture before writing code.
+> - **Files:**
+>   - `lib/graph/nodes/pmNode.ts`
+>   - `package.json`
+
+> ### Frontend Engineer Agent Node
+>
+> - **What changed:** Created `frontendEngineerNode` to generate code based on execution plans and removed the monolithic `AutonomousAgent`.
+> - **Why:** Decouple code generation from ticket analysis and enable the multi-agent workflow.
+> - **Files:**
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/agent.ts` (deleted)
+
+> ### Separated System Prompts
+>
+> - **What changed:** Extracted system prompts and helper functions into `lib/graph/prompts/` directory.
+> - **Why:** Improve maintainability and separate prompt engineering from agent logic.
+> - **Files:**
+>   - `lib/graph/prompts/pmPrompts.ts`
+>   - `lib/graph/prompts/engineerPrompts.ts`
+>   - `lib/graph/nodes/pmNode.ts`
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+
+> ### Graph Orchestration & Workflow Execution
+>
+> - **What changed:** Orchestrated the PM and Engineer nodes into a LangGraph pipeline and updated webhook/API routes to execute it.
+> - **Why:** Enable end-to-end autonomous workflow where Jira tickets trigger the multi-agent graph, resulting in PRs.
+> - **Files:**
+>   - `lib/graph/index.ts`
+>   - `app/api/webhook/route.ts`
+>   - `app/api/process-ticket/route.ts`
+
+> ### Structured Output Validation
+>
+> - **What changed:** Implemented strict Zod schema validation for the PM Agent's execution plan.
+> - **Why:** Ensure the PM Agent produces predictable, structured JSON output that guarantees compatibility with the Engineer Node.
+> - **Files:**
+>   - `lib/graph/schema.ts`
+>   - `lib/graph/state.ts`
+>   - `lib/graph/nodes/pmNode.ts`
+
+> ### Comprehensive Observability
+>
+> - **What changed:** Added structured logging to the webhook, graph execution stream, agent nodes, and service layers (GitHub/Jira).
+> - **Why:** Enable detailed debugging of the multi-agent workflow, tracking state transitions, AI prompts/responses, and external API interactions.
+> - **Files:**
+>   - `app/api/webhook/route.ts`
+>   - `lib/graph/nodes/pmNode.ts`
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/github.ts`
+>   - `lib/jira.ts`
+
+> ### Enhanced Service Layer Integration
+>
+> - **What changed:** Centralized GitHub workflow and Jira transition logic into reusable service methods (`processChangesAndCreatePR`, `linkPRAndTransitionTicket`) and updated API routes to use them.
+> - **Why:** Promote code reuse, reduce duplication in route handlers, and ensure consistent behavior across different triggers (webhook vs manual).
+> - **Files:**
+>   - `lib/github.ts`
+>   - `lib/jira.ts`
+>   - `app/api/webhook/route.ts`
+>   - `app/api/process-ticket/route.ts`
+
+> ### Enhanced Output Logging
+>
+> - **What changed:** Updated agent nodes to log concise summaries and previews of generated content (execution plans, code files) instead of full JSON dumps.
+> - **Why:** Improve readability of logs and provide immediate visibility into agent outputs without cluttering the console.
+> - **Files:**
+>   - `lib/graph/nodes/pmNode.ts`
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+
+> ### Refined Notification Formatting
+>
+> - **What changed:** Updated Jira comments to use Atlassian Document Format for clickable links and refined the PM Agent schema to enforce markdown lists in execution plans.
+> - **Why:** Improve the usability of automated notifications by ensuring links are clickable and PR descriptions are properly formatted.
+> - **Files:**
+>   - `lib/jira.ts`
+>   - `lib/graph/schema.ts`
+
 > ### Improved Branch Naming Convention
 >
 > - **What changed:** Updated branch naming to use ticket title slug instead of timestamp (e.g., `feature/kuailabs-13-add-login` instead of `feature/kuailabs-13-123456789`).
