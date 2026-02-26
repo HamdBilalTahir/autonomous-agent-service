@@ -1,6 +1,7 @@
 import { GitHubService } from "./github";
 import { JiraService } from "./jira";
 import { OllamaService } from "./ollama";
+import { AgentPrompts } from "./prompts";
 import { Ticket, AgentResponse } from "./types";
 
 export class AutonomousAgent {
@@ -155,7 +156,11 @@ export class AutonomousAgent {
       actions.push({ type: "branch_create", payload: { branch: branchName } });
 
       // 5. Generate Code and Commit for each file
-      for (const filePath of filesToChange) {
+      const allFiles = [...filesToChange, ...(analysis.newFilesToCreate || [])];
+      // Deduplicate files
+      const uniqueFiles = Array.from(new Set(allFiles));
+
+      for (const filePath of uniqueFiles) {
         this.log("info", "Processing file", { ticketId, filePath });
 
         // Fetch existing content
@@ -163,26 +168,44 @@ export class AutonomousAgent {
           ticketId,
           filePath,
         });
-        const existingContent = await this.github.getFileContent(
-          this.targetOwner,
-          this.targetRepo,
-          filePath,
-          "main", // Get from main to ensure fresh base
-        );
 
-        if (!existingContent) {
-          this.log("warn", "File not found, skipping", { ticketId, filePath });
-          continue;
+        let existingContent = "";
+        try {
+          const content = await this.github.getFileContent(
+            this.targetOwner,
+            this.targetRepo,
+            filePath,
+            "main", // Get from main to ensure fresh base
+          );
+          existingContent = content || "";
+        } catch (error) {
+          this.log("info", "File not found, treating as new file", {
+            ticketId,
+            filePath,
+          });
+          existingContent = "";
         }
 
         // Generate new content
         this.log("info", "Generating code with AI", { ticketId, filePath });
+
+        this.log("info", "Analysis for file", {
+          ticketId,
+          filePath,
+          analysisSummary: analysis.summary,
+        });
+
         const { code, explanation } = await this.ollama.generateCode(
-          `${ticket.title}\n${ticket.description}\n\nAnalysis: ${analysis.suggestedAction}`,
+          ticket,
           existingContent,
           filePath,
+          analysis,
         );
-        this.log("info", "Code generation successful", { ticketId, filePath });
+        this.log("info", "Code generation successful", {
+          ticketId,
+          filePath,
+          codeLength: code.length,
+        });
 
         // Commit changes
         this.log("info", "Committing changes to branch", {

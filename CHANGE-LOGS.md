@@ -2,6 +2,28 @@
 
 ---
 
+### ✨ Features
+
+---
+
+> ### Improve Agent File Processing
+>
+> - **What changed:** Updated `lib/agent.ts` to process both new and existing files, and improved prompt generation for code changes.
+> - **Why:** To enable the agent to create new files as suggested by the AI analysis and handle missing files gracefully.
+> - **Files:**
+>   - `lib/agent.ts`
+>   - `lib/ollama.ts`
+
+> ### Enhanced AI Ticket Analysis
+>
+> - **What changed:** Updated `analyzeTicket` to use `AgentPrompts` for structured analysis with improved error handling and fallback mechanism.
+> - **Why:** Increase reliability of AI responses by parsing JSON more robustly and providing fallback logic for failures.
+> - **Files:**
+>   - `lib/ollama.ts`
+>   - `lib/prompts.ts`
+
+---
+
 ### 🐛 Fixes
 
 ---
@@ -47,6 +69,14 @@
 >   - `lib/github.ts`
 >   - `lib/jira.ts`
 >   - `lib/ollama.ts`
+
+> ### Enhanced Debug Logging
+>
+> - **What changed:** Added detailed console logs to `lib/ollama.ts` and `lib/agent.ts` to track prompt generation and AI responses.
+> - **Why:** Improve visibility into the AI code generation process for debugging and monitoring.
+> - **Files:**
+>   - `lib/ollama.ts`
+>   - `lib/agent.ts`
 
 > ### Enhanced API Endpoints
 >
@@ -120,3 +150,11 @@
 >   - `app/api/process-ticket/route.ts`
 >   - `app/api/webhook/route.ts`
 >   - `app/api/test/route.ts`
+
+> ### Standardized Prompt Generation Location
+>
+> - **What changed:** Moved `AgentPrompts.getCodeGenerationPrompt` call from `lib/agent.ts` into `lib/ollama.ts`.
+> - **Why:** Encapsulate AI prompt construction within the AI service layer and simplify the agent's logic.
+> - **Files:**
+>   - `lib/ollama.ts`
+>   - `lib/agent.ts`

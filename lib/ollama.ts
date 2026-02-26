@@ -1,3 +1,6 @@
+import { AgentPrompts, AnalysisResponse } from "./prompts";
+import { Ticket } from "./types";
+
 export class OllamaService {
   private baseUrl: string;
   private model: string;
@@ -103,67 +106,75 @@ export class OllamaService {
   async analyzeTicket(
     title: string,
     description: string,
-  ): Promise<{
-    summary: string;
-    suggestedAction: string;
-    complexity: string;
-    filesToChange?: string[];
-  }> {
-    const prompt = `
-      You are an expert software engineer. Analyze the following ticket:
-      Title: ${title}
-      Description: ${description}
-
-      Provide a JSON response with the following keys:
-      - summary: A brief summary of the issue
-      - suggestedAction: What should be done
-      - complexity: "Low", "Medium", or "High"
-      - filesToChange: An array of file paths that likely need modification (guess based on description)
-
-      Return ONLY JSON.
-    `;
+    codebaseContext?: any,
+  ): Promise<AnalysisResponse> {
+    const prompt = AgentPrompts.getAnalysisPrompt(
+      title,
+      description,
+      codebaseContext,
+    );
 
     const response = await this.generateResponse(prompt);
+    console.log("Raw AI Analysis Response:", response);
+
     try {
-      const jsonStr = response.replace(/```json\n|\n```/g, "").trim();
-      // Handle potential trailing text
-      const firstBrace = jsonStr.indexOf("{");
-      const lastBrace = jsonStr.lastIndexOf("}");
-      if (firstBrace !== -1 && lastBrace !== -1) {
-        return JSON.parse(jsonStr.substring(firstBrace, lastBrace + 1));
-      }
-      return JSON.parse(jsonStr);
-    } catch (e) {
-      console.error("Failed to parse Ollama response as JSON", e);
+      // Extract JSON content between curly braces
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      let jsonStr = jsonMatch ? jsonMatch[0] : response;
+
+      // Clean up common AI mistakes
+      jsonStr = jsonStr
+        // Remove trailing commas before closing braces/brackets
+        .replace(/,(\s*[}\]])/g, "$1")
+        // Quote unquoted property names
+        .replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3');
+
+      const parsed = JSON.parse(jsonStr);
+
+      // Ensure response matches interface structure
       return {
-        summary: "Analysis failed",
-        suggestedAction: "Manual review required",
-        complexity: "Unknown",
-        filesToChange: [],
+        summary: parsed.summary || `Analysis of ${title}`,
+        suggestedAction: parsed.suggestedAction || "Review code changes",
+        complexity: parsed.complexity || "Medium",
+        filesToChange: Array.isArray(parsed.filesToChange)
+          ? parsed.filesToChange
+          : [],
+        newFilesToCreate: Array.isArray(parsed.newFilesToCreate)
+          ? parsed.newFilesToCreate
+          : [],
+        estimatedLines: parsed.estimatedLines,
+        dependencies: parsed.dependencies,
+        testFiles: parsed.testFiles,
       };
+    } catch (e) {
+      console.error("Failed to parse Ollama response as JSON:", e);
+      console.error("Raw response that failed:", response);
+      return AgentPrompts.getFallbackAnalysis({ title, description });
     }
   }
 
   async generateCode(
-    ticketContext: string,
-    fileContent: string,
+    ticket: Ticket,
+    existingContent: string,
     filePath: string,
+    analysis: AnalysisResponse,
   ): Promise<{ code: string; explanation: string }> {
-    const prompt = `
-      You are an expert developer.
-      Ticket: ${ticketContext}
-      
-      Existing File (${filePath}):
-      \`\`\`
-      ${fileContent}
-      \`\`\`
+    console.log(`[OllamaService] Generating code for ${filePath}...`);
+    console.log(`[OllamaService] Ticket: ${ticket.id} - ${ticket.title}`);
 
-      Task: Rewrite the file to address the ticket requirements. 
-      Return the full updated file content inside a code block.
-      After the code block, provide a brief explanation.
-    `;
+    const prompt = AgentPrompts.getCodeGenerationPrompt(
+      ticket,
+      existingContent,
+      filePath,
+      analysis,
+    );
+
+    console.log(
+      `[OllamaService] Generated Prompt (first 200 chars): ${prompt.substring(0, 200)}...`,
+    );
 
     const response = await this.generateResponse(prompt);
+    console.log(`[OllamaService] Raw Response length: ${response.length}`);
 
     // Parse response
     const codeBlockRegex = /```(?:\w+)?\n([\s\S]*?)```/;
