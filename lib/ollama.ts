@@ -186,6 +186,18 @@ export class OllamaService {
       return { code, explanation };
     }
 
+    // If no code block, assume the whole response is code (per the new prompt instructions)
+    // providing it doesn't look like a conversational response
+    if (
+      !response.includes("Here is the code") &&
+      !response.includes("I have generated")
+    ) {
+      return {
+        code: response,
+        explanation: "Raw code response (no markdown blocks detected)",
+      };
+    }
+
     return {
       code: response,
       explanation: "No code block found, returning raw response",

@@ -10,6 +10,7 @@ export class AutonomousAgent {
   private ollama: OllamaService;
   private targetOwner: string;
   private targetRepo: string;
+  private processingTickets: Set<string>;
 
   constructor(
     githubToken: string,
@@ -26,6 +27,7 @@ export class AutonomousAgent {
     this.ollama = new OllamaService(ollamaUrl, "codegemma:2b", hfApiKey);
     this.targetOwner = targetOwner;
     this.targetRepo = targetRepo;
+    this.processingTickets = new Set<string>();
   }
 
   private log(level: "info" | "error" | "warn", message: string, meta?: any) {
@@ -66,6 +68,15 @@ export class AutonomousAgent {
       return false;
     }
 
+    // Skip if status is already processing or completed
+    const statusName = payload.issue.fields?.status?.name;
+    if (
+      statusName &&
+      ["In Progress", "Done", "In Review"].includes(statusName)
+    ) {
+      return false;
+    }
+
     const labels = payload.issue.fields.labels || [];
     if (labels.includes("ai-agent")) {
       return true;
@@ -79,6 +90,16 @@ export class AutonomousAgent {
     let initialStatus: string | undefined;
 
     this.log("info", "Starting ticket processing", { ticketId });
+
+    if (this.processingTickets.has(ticketId)) {
+      this.log("warn", "Ticket processing skipped - lock active", { ticketId });
+      return {
+        success: false,
+        actions: [],
+        message: `Ticket ${ticketId} is already being processed.`,
+      };
+    }
+    this.processingTickets.add(ticketId);
 
     try {
       // 1. Fetch ticket details from Jira
@@ -128,9 +149,18 @@ export class AutonomousAgent {
 
       // 3. Analyze ticket with Ollama
       this.log("info", "Analyzing ticket with AI", { ticketId });
+
+      // Fetch codebase structure
+      this.log("info", "Fetching codebase structure", { ticketId });
+      const structure = await this.github.getRepoStructure(
+        this.targetOwner,
+        this.targetRepo,
+      );
+
       const analysis = await this.ollama.analyzeTicket(
         ticket.title,
         ticket.description,
+        { structure },
       );
 
       const filesToChange = analysis.filesToChange || [];
@@ -321,6 +351,8 @@ export class AutonomousAgent {
         actions: actions,
         message: `Failed to process ticket: ${error.message}`,
       };
+    } finally {
+      this.processingTickets.delete(ticketId);
     }
   }
 

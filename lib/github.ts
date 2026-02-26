@@ -175,4 +175,40 @@ export class GitHubService {
     }
     return [];
   }
+
+  async getRepoStructure(owner: string, repo: string, branch: string = "main") {
+    try {
+      // Get the sha of the branch
+      const { data: refData } = await this.octokit.git.getRef({
+        owner,
+        repo,
+        ref: `heads/${branch}`,
+      });
+      const sha = refData.object.sha;
+
+      // Get the tree recursively
+      const { data } = await this.octokit.git.getTree({
+        owner,
+        repo,
+        tree_sha: sha,
+        recursive: "true",
+      });
+
+      // Filter out node_modules, .git, and other noise
+      // Return a list of file paths
+      return data.tree
+        .filter(
+          (item) =>
+            item.path &&
+            !item.path.startsWith("node_modules") &&
+            !item.path.startsWith(".git") &&
+            !item.path.startsWith("dist") &&
+            !item.path.startsWith(".next"),
+        )
+        .map((item) => item.path);
+    } catch (error: any) {
+      console.error("Error fetching repo structure:", error);
+      return [];
+    }
+  }
 }

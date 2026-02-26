@@ -85,35 +85,43 @@ TASK TO ANALYZE:
 Title: ${title}
 Description: ${description}
 
-ANALYZE and respond with ONLY valid JSON (no markdown, no explanations):
+ANALYZE and respond with ONLY valid JSON (no markdown, no explanations).
+Identify ALL specific implementation files needed (components, hooks, utils, tests).
 
 {
-  "filesToChange": ["exact/file/paths.tsx"],
+  "filesToChange": ["src/components/SpecificComponent.tsx"],
   "complexity": "Low|Medium|High",
-  "suggestedAction": "specific technical action",
-  "summary": "one sentence technical summary",
+  "suggestedAction": "specific technical implementation details",
+  "summary": "technical summary of changes",
   "estimatedLines": 50,
   "dependencies": ["package-name"],
-  "testFiles": ["path/to/test.tsx"],
-  "newFilesToCreate": ["path/to/new/file.tsx"]
+  "testFiles": ["src/components/__tests__/SpecificComponent.test.tsx"],
+  "newFilesToCreate": ["src/components/NewFeature.tsx", "src/hooks/useNewFeature.ts"]
 }
 
 ANALYSIS RULES:
-1. UI Components → src/components/ComponentName.tsx
-2. Business Logic → src/hooks/useFeatureName.ts  
+1. UI Components → src/components/ComponentName.tsx (e.g., Button.tsx, LoginForm.tsx)
+2. Business Logic → src/hooks/useFeatureName.ts
 3. Utilities → src/utils/featureName.ts
 4. API Routes → app/api/endpoint/route.ts
 5. Pages → app/page-name/page.tsx
+6. Tests → src/components/__tests__/ComponentName.test.tsx
+
+MULTI-FILE ARCHITECTURE RULES:
+- For AUTHENTICATION: Require LoginForm.tsx (UI), useAuth.ts (Hook), and app/api/auth/route.ts (Backend).
+- For DATA FETCHING: Require Component.tsx (UI) and app/api/data/route.ts (Backend).
+- For COMPLEX STATE: Require Component.tsx (UI) and useComponentState.ts (Hook).
+- Always separate UI (components) from Logic (hooks) from Data (api).
 
 COMPLEXITY GUIDELINES:
 - LOW: Single component, <50 lines, no API calls
 - MEDIUM: Multiple files, API integration, state management
-- HIGH: Complex logic, external integrations, database changes
+- HIGH: Complex logic, external integrations, database changes, multi-file features
 
 EXAMPLES:
-"Add login button" → ["src/components/LoginButton.tsx"]
-"User authentication system" → ["src/hooks/useAuth.ts", "src/components/LoginForm.tsx", "app/api/auth/route.ts"]
-"Fix navbar styling" → ["src/components/Navbar.tsx"]
+"Add login button" → filesToChange: [], newFilesToCreate: ["src/components/LoginButton.tsx"]
+"User authentication system" → newFilesToCreate: ["src/hooks/useAuth.ts", "src/components/LoginForm.tsx", "app/api/auth/route.ts"]
+"Fix navbar styling" → filesToChange: ["src/components/Navbar.tsx"], newFilesToCreate: []
 
 Respond with JSON only:`;
   }
@@ -131,7 +139,11 @@ Respond with JSON only:`;
     const suggestedAction =
       analysis?.suggestedAction || "Implement the requested changes.";
 
-    return `You are an expert React/TypeScript developer implementing: ${task}
+    return `You are an expert React/TypeScript developer implementing a feature.
+You must generate PRODUCTION-READY code that can be directly committed and used.
+
+TASK:
+${task}
 
 FILE: ${filePath}
 TYPE: ${isNewFile ? "CREATE NEW" : "MODIFY EXISTING"}
@@ -140,17 +152,18 @@ COMPLEXITY: ${complexity}
 ${isNewFile ? "REQUIREMENTS FOR NEW FILE:" : "EXISTING CONTENT:"}
 ${isNewFile ? this.getFileRequirements(filePath) : existingContent}
 
-IMPLEMENTATION REQUIREMENTS:
+IMPLEMENTATION DETAILS:
 ${suggestedAction}
 
-CODING STANDARDS:
-1. TypeScript with strict typing - define interfaces for all props
-2. Functional components with React hooks (useState, useEffect, etc.)
-3. Tailwind CSS classes for styling (no custom CSS)
-4. Error boundaries and proper error handling
-5. Accessibility: ARIA labels, keyboard navigation, semantic HTML
-6. Performance: useMemo, useCallback where appropriate
-7. JSDoc comments for all functions and interfaces
+CRITICAL CODING STANDARDS:
+1. COMPLETE CODE: Generate the full file content. Do not use placeholders like "// ... rest of code".
+2. IMPORTS: Use proper relative or absolute imports.
+3. TYPESCRIPT: strict typing, define interfaces for all props and state.
+4. REACT: Functional components, hooks (useState, useEffect, useMemo, useCallback).
+5. TAILWIND: Use standard Tailwind utility classes. Do not create custom CSS files unless specified.
+6. ERROR HANDLING: Implement proper try/catch blocks and UI error states.
+7. ACCESSIBILITY: Ensure proper ARIA attributes and semantic HTML.
+8. EXPORTS: Ensure the component or function is properly exported (usually default for components).
 
 SPECIFIC TO ${fileType?.toUpperCase()}:
 ${this.getFileTypeRequirements(filePath)}
@@ -158,7 +171,10 @@ ${this.getFileTypeRequirements(filePath)}
 ${isNewFile ? "TEMPLATE STRUCTURE:" : "MODIFICATION STRATEGY:"}
 ${isNewFile ? this.getTemplateStructure(filePath) : "Preserve existing structure, improve and extend functionality"}
 
-Return ONLY the complete file content. No explanations, no markdown blocks, no comments about the code.`;
+Return ONLY the complete file content as a raw string.
+Do not wrap in markdown code blocks (e.g. \`\`\`typescript).
+Do not include explanations or conversational text.
+Just the code.`;
   }
 
   static getFileCreationPrompt(ticket: Ticket, filePath: string): string {

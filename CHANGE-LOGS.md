@@ -6,6 +6,28 @@
 
 ---
 
+> ### Multi-File Analysis Logic
+>
+> - **What changed:** Updated AI analysis prompt to better identify and structure complex features requiring multiple files (UI, hooks, API).
+> - **Why:** Improve the agent's ability to architect complete features like authentication systems or complex state management.
+> - **Files:**
+>   - `lib/prompts.ts`
+
+> ### Enhanced Webhook Filtering
+>
+> - **What changed:** Updated `shouldProcessTicket` to ignore tickets in "In Progress", "In Review", or "Done" states.
+> - **Why:** Prevent unnecessary processing of active or completed tickets and improve system efficiency.
+> - **Files:**
+>   - `lib/agent.ts`
+
+> ### Production-Ready Code Generation
+>
+> - **What changed:** Updated AI prompts to generate complete, working TypeScript/React code instead of requirements.
+> - **Why:** To enable the agent to produce directly committable implementations with proper imports and error handling.
+> - **Files:**
+>   - `lib/prompts.ts`
+>   - `lib/ollama.ts`
+
 > ### Improve Agent File Processing
 >
 > - **What changed:** Updated `lib/agent.ts` to process both new and existing files, and improved prompt generation for code changes.
@@ -27,6 +49,13 @@
 ### 🐛 Fixes
 
 ---
+
+> ### Webhook Duplicate Processing Lock
+>
+> - **What changed:** Implemented an in-memory lock system in `processTicket` to track and prevent concurrent processing of the same ticket ID.
+> - **Why:** Prevent race conditions and redundant operations when Jira sends duplicate webhook events.
+> - **Files:**
+>   - `lib/agent.ts`
 
 > ### Webhook Loop Protection
 >
