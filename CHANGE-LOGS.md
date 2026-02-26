@@ -95,6 +95,47 @@
 >   - `lib/jira.ts`
 >   - `lib/graph/schema.ts`
 
+> ### Agile Planning & Estimation
+>
+> - **What changed:** Expanded the PM Agent's capabilities to estimate Story Points (Fibonacci) and Priority levels, enforcing these fields via Zod schema.
+> - **Why:** Enable the agent to act as a Scrum Master, providing valuable planning metrics alongside the technical architecture.
+> - **Files:**
+>   - `lib/graph/schema.ts`
+>   - `lib/graph/prompts/pmPrompts.ts`
+>   - `lib/graph/nodes/pmNode.ts`
+
+> ### Jira Field Integration
+>
+> - **What changed:** Implemented `updateTicketEstimates` in `JiraService` to push Priority and Story Points back to Jira tickets using custom fields.
+> - **Why:** Ensure that the AI's planning and estimation data is reflected in the project management tool for better tracking.
+> - **Files:**
+>   - `lib/jira.ts`
+>   - `app/api/webhook/route.ts`
+>   - `app/api/process-ticket/route.ts`
+
+> ### Dynamic Jira Field Discovery
+>
+> - **What changed:** Implemented "Fetch-and-Stash" logic in `JiraService` to dynamically discover the "Story point estimate" custom field ID at runtime.
+> - **Why:** Remove the need for hardcoded field IDs in environment variables, making the integration more robust across different Jira workspaces.
+> - **Files:**
+>   - `lib/jira.ts`
+
+> ### Robust Jira Metadata Sync
+>
+> - **What changed:** Refined `JiraService` to use a robust "Fetch-and-Stash" ID discovery, implemented strict Priority validation with default fallbacks, and created an atomic `updateTicketMetadata` method.
+> - **Why:** Prevent API failures due to invalid priority values or missing custom field IDs, ensuring reliable synchronization of AI estimates to Jira.
+> - **Files:**
+>   - `lib/jira.ts`
+>   - `app/api/webhook/route.ts`
+>   - `app/api/process-ticket/route.ts`
+
+> ### Refined PM Agent Prompt
+>
+> - **What changed:** Updated the PM Agent's system prompt to include specific Agile estimation rules (Priority values and Story Point Fibonacci sequence).
+> - **Why:** Ensure consistent and realistic estimation outputs from the AI, aligning with Jira's field requirements and Agile best practices.
+> - **Files:**
+>   - `lib/graph/prompts/pmPrompts.ts`
+
 > ### Improved Branch Naming Convention
 >
 > - **What changed:** Updated branch naming to use ticket title slug instead of timestamp (e.g., `feature/kuailabs-13-add-login` instead of `feature/kuailabs-13-123456789`).

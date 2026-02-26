@@ -54,6 +54,9 @@ export async function pmNode(state: typeof AgentState.State) {
   console.log("✅ [PM Node] Execution Plan Generated:");
   console.log(`   Scope: ${result.featureScope}`);
   console.log(
+    `   Story Points: ${result.storyPoints || "N/A"} | Priority: ${result.priority || "N/A"}`,
+  );
+  console.log(
     `   Files to Create: ${result.newFilesToCreate?.join(", ") || "None"}`,
   );
   console.log(

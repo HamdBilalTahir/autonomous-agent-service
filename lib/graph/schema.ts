@@ -21,6 +21,16 @@ export const ExecutionPlanSchema = z.object({
     .describe(
       "Highly detailed, step-by-step technical instructions for the frontend engineer. Include the logic, required UI elements, and Tailwind structure. Do not write code. Format as a markdown list.",
     ),
+  storyPoints: z
+    .number()
+    .describe(
+      "Estimate the effort using Fibonacci sequence (1, 2, 3, 5, 8). 1 = simple text change, 3 = standard component, 5 = complex component with state/routing, 8 = massive refactor.",
+    ),
+  priority: z
+    .enum(["Highest", "High", "Medium", "Low", "Lowest"])
+    .describe(
+      "Assess the severity/priority of this ticket based on its description.",
+    ),
 });
 
 // Export the TypeScript type for use in our LangGraph State

@@ -113,7 +113,15 @@ export async function POST(req: NextRequest) {
 
     console.log(`[Webhook] PR created: ${pr.html_url}`);
 
-    // Update Jira
+    // Update Jira Estimates
+    if (executionPlan?.priority && executionPlan?.storyPoints !== undefined) {
+      await jira.updateTicketMetadata(ticketId, {
+        priority: executionPlan.priority,
+        storyPoints: executionPlan.storyPoints,
+      });
+    }
+
+    // Update Jira Status and Link PR
     await jira.linkPRAndTransitionTicket(ticketId, pr.html_url, "In Review");
 
     return NextResponse.json({

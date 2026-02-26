@@ -1,3 +1,5 @@
+let STASHED_SP_ID: string | null = null;
+
 export class JiraService {
   private baseUrl: string;
   private email: string;
@@ -228,6 +230,110 @@ export class JiraService {
         error,
       );
       // Graceful degradation: do not throw error to ensure the process completes
+    }
+  }
+
+  private async getStoryPointFieldId() {
+    if (STASHED_SP_ID) {
+      return STASHED_SP_ID;
+    }
+
+    try {
+      console.log("[JiraService] Fetching fields to find Story Points ID...");
+      const response = await fetch(`${this.baseUrl}/rest/api/3/field`, {
+        method: "GET",
+        headers: this.headers,
+      });
+
+      if (!response.ok) {
+        console.error(
+          `[JiraService] Failed to fetch fields: ${response.status}`,
+        );
+        return null;
+      }
+
+      const fields = await response.json();
+      const storyPointsField = fields.find(
+        (f: any) =>
+          f.name === "Story point estimate" || f.name === "Story Points",
+      );
+
+      if (storyPointsField) {
+        STASHED_SP_ID = storyPointsField.id;
+        console.log(`[JiraService] Found Story Points ID: ${STASHED_SP_ID}`);
+        return STASHED_SP_ID;
+      } else {
+        console.warn("[JiraService] 'Story point estimate' field not found.");
+        return null;
+      }
+    } catch (e) {
+      console.error("[JiraService] Error fetching fields:", e);
+      return null;
+    }
+  }
+
+  async updateTicketMetadata(
+    ticketKey: string,
+    data: { priority?: string; storyPoints?: number },
+  ) {
+    const { priority, storyPoints } = data;
+    const fields: Record<string, any> = {};
+
+    if (priority) {
+      const allowedPriorities = ["Highest", "High", "Medium", "Low", "Lowest"];
+      const validatedPriority = allowedPriorities.includes(priority)
+        ? priority
+        : "Medium";
+
+      if (priority !== validatedPriority) {
+        console.warn(
+          `[JiraService] Invalid priority '${priority}', defaulting to '${validatedPriority}'`,
+        );
+      }
+      fields.priority = { name: validatedPriority };
+    }
+
+    const spId = await this.getStoryPointFieldId();
+    if (storyPoints !== undefined && spId) {
+      fields[spId] = storyPoints;
+    } else if (storyPoints !== undefined) {
+      console.warn(
+        "Story Points provided but field ID not found. Skipping story points update.",
+      );
+    }
+
+    if (Object.keys(fields).length === 0) {
+      return;
+    }
+
+    try {
+      console.log(
+        `[JiraService] Updating ${ticketKey}: Priority=${priority}, StoryPoints=${storyPoints}`,
+      );
+      const response = await fetch(
+        `${this.baseUrl}/rest/api/3/issue/${ticketKey}`,
+        {
+          method: "PUT",
+          headers: this.headers,
+          body: JSON.stringify({ fields }),
+        },
+      );
+
+      if (!response.ok) {
+        // If priority update fails (e.g. invalid priority name), try to parse error
+        const errorText = await response.text();
+        throw new Error(
+          `Failed to update ticket metadata: ${response.status} ${response.statusText} - ${errorText}`,
+        );
+      }
+
+      console.log(`[Jira] Successfully updated metadata for ${ticketKey}`);
+    } catch (error: any) {
+      console.error(
+        `[Jira] Failed to update metadata for ${ticketKey}:`,
+        error,
+      );
+      // Graceful degradation
     }
   }
 }
