@@ -32,4 +32,4 @@ Solo developers looking to automate routine coding tasks
 Teams seeking to reduce repetitive feature implementation
 POCs and MVPs where speed of iteration matters most
 
-# This service transforms your development workflow from manual coding to specification-driven automation, letting you focus on architecture and product decisions while AI handles the implementation details.
+### This service transforms your development workflow from manual coding to specification-driven automation, letting you focus on architecture and product decisions while AI handles the implementation details.
