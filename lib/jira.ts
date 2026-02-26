@@ -33,6 +33,26 @@ export class JiraService {
     }
   }
 
+  async getCurrentUser() {
+    try {
+      const response = await fetch(`${this.baseUrl}/rest/api/3/myself`, {
+        method: "GET",
+        headers: this.headers,
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to get current user: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      return response.json();
+    } catch (e) {
+      console.error("Get current user failed:", e);
+      return null;
+    }
+  }
+
   async getTicket(ticketId: string) {
     const response = await fetch(
       `${this.baseUrl}/rest/api/3/issue/${ticketId}`,

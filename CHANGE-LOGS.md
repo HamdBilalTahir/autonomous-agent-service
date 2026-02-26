@@ -1,3 +1,47 @@
+## 🗓️ **2026-02-27**
+
+---
+
+### ✨ Features
+
+---
+
+> ### Improved Branch Naming Convention
+>
+> - **What changed:** Updated branch naming to use ticket title slug instead of timestamp (e.g., `feature/kuailabs-13-add-login` instead of `feature/kuailabs-13-123456789`).
+> - **Why:** Create more descriptive and readable branch names that are easier to identify and link to requirements.
+> - **Files:**
+>   - `lib/agent.ts`
+
+---
+
+### 🐛 Fixes
+
+---
+
+> ### Allow creating new files without editing existing ones
+>
+> - **What changed:** Updated validation logic to check if both `filesToChange` and `newFilesToCreate` are empty before throwing an error.
+> - **Why:** Allow the agent to process tickets that only require creating new files.
+> - **Files:**
+>   - `lib/agent.ts`
+
+> ### Webhook Loop Prevention
+>
+> - **What changed:** Implemented dynamic check for self-triggered webhooks by comparing the trigger user's Account ID with the agent's own Account ID fetched at runtime. Added exception for `jira:issue_created` events to allow processing of agent-created tickets.
+> - **Why:** Prevent infinite loops where the agent reacting to a ticket triggers another webhook event, while ensuring test/automation tickets are still processed.
+> - **Files:**
+>   - `app/api/webhook/route.ts`
+>   - `lib/agent.ts`
+>   - `lib/jira.ts`
+
+> ### Enhanced New File Generation
+>
+> - **What changed:** Updated `getCodeGenerationPrompt` to explicitly instruct the AI when creating new files, ensuring it outputs complete code with imports and dependencies.
+> - **Why:** Prevent partial code generation for new files and ensure the AI understands it's building from scratch.
+> - **Files:**
+>   - `lib/prompts.ts`
+
 ## 🗓️ **2026-02-26**
 
 ---
@@ -5,6 +49,15 @@
 ### ✨ Features
 
 ---
+
+> ### Gemini AI Provider Support
+>
+> - **What changed:** Implemented `GeminiService` with configurable model selection (e.g., `gemini-3.1-pro-preview`) and JSON mode for structured analysis.
+> - **Why:** Enable switching between Ollama and Gemini AI providers for potentially better performance and reliability.
+> - **Files:**
+>   - `lib/gemini.ts`
+>   - `lib/agent.ts`
+>   - `.env.example`
 
 > ### Multi-File Analysis Logic
 >
@@ -145,6 +198,16 @@
 ### 🔧 DevOps / Build
 
 ---
+
+> ### Gemini Dependencies and Configuration
+>
+> - **What changed:** Added `@google/generative-ai` dependency and configured `GEMINI_API_KEY`, `GEMINI_MODEL`, and `AI_PROVIDER` env vars.
+> - **Why:** Support the new Gemini AI integration.
+> - **Files:**
+>   - `package.json`
+>   - `.env.example`
+>   - `app/api/webhook/route.ts`
+>   - `app/api/process-ticket/route.ts`
 
 > ### Environment Configuration and Deployment Setup
 >

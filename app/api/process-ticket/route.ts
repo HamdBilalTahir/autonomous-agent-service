@@ -24,6 +24,9 @@ export async function POST(req: NextRequest) {
       process.env.TARGET_GITHUB_OWNER || "HamdBilalTahir",
       process.env.TARGET_GITHUB_REPO || "autonomous-agent-service",
       process.env.HF_API_KEY,
+      process.env.GEMINI_API_KEY,
+      (process.env.AI_PROVIDER as "ollama" | "gemini") || "ollama",
+      process.env.GEMINI_MODEL,
     );
 
     const result = await agent.processTicket(ticketId);

@@ -138,6 +138,7 @@ Respond with JSON only:`;
     const complexity = analysis?.complexity || "Medium";
     const suggestedAction =
       analysis?.suggestedAction || "Implement the requested changes.";
+    const summary = analysis?.summary || "No summary provided";
 
     return `You are an expert React/TypeScript developer implementing a feature.
 You must generate PRODUCTION-READY code that can be directly committed and used.
@@ -145,12 +146,22 @@ You must generate PRODUCTION-READY code that can be directly committed and used.
 TASK:
 ${task}
 
+ANALYSIS SUMMARY:
+${summary}
+
 FILE: ${filePath}
 TYPE: ${isNewFile ? "CREATE NEW" : "MODIFY EXISTING"}
 COMPLEXITY: ${complexity}
 
-${isNewFile ? "REQUIREMENTS FOR NEW FILE:" : "EXISTING CONTENT:"}
-${isNewFile ? this.getFileRequirements(filePath) : existingContent}
+${
+  isNewFile
+    ? `You are creating a completely new file at ${filePath}. Output the complete, runnable code for this file including all necessary imports and exports. Do not output a diff.
+
+REQUIREMENTS FOR NEW FILE:
+${this.getFileRequirements(filePath)}`
+    : `EXISTING CONTENT:
+${existingContent}`
+}
 
 IMPLEMENTATION DETAILS:
 ${suggestedAction}

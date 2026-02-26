@@ -1,13 +1,14 @@
 import { GitHubService } from "./github";
 import { JiraService } from "./jira";
 import { OllamaService } from "./ollama";
+import { GeminiService } from "./gemini";
 import { AgentPrompts } from "./prompts";
 import { Ticket, AgentResponse } from "./types";
 
 export class AutonomousAgent {
   private github: GitHubService;
   private jira: JiraService;
-  private ollama: OllamaService;
+  private aiService: OllamaService | GeminiService;
   private targetOwner: string;
   private targetRepo: string;
   private processingTickets: Set<string>;
@@ -21,10 +22,24 @@ export class AutonomousAgent {
     targetOwner: string,
     targetRepo: string,
     hfApiKey?: string,
+    geminiApiKey?: string,
+    aiProvider: "ollama" | "gemini" = "ollama",
+    geminiModelName: string = "gemini-1.5-pro",
   ) {
     this.github = new GitHubService(githubToken);
     this.jira = new JiraService(jiraBaseUrl, jiraEmail, jiraToken);
-    this.ollama = new OllamaService(ollamaUrl, "codegemma:2b", hfApiKey);
+
+    if (aiProvider === "gemini") {
+      if (!geminiApiKey) {
+        throw new Error(
+          "Gemini API Key is required when using Gemini provider",
+        );
+      }
+      this.aiService = new GeminiService(geminiApiKey, geminiModelName);
+    } else {
+      this.aiService = new OllamaService(ollamaUrl, "codegemma:2b", hfApiKey);
+    }
+
     this.targetOwner = targetOwner;
     this.targetRepo = targetRepo;
     this.processingTickets = new Set<string>();
@@ -32,28 +47,35 @@ export class AutonomousAgent {
 
   private log(level: "info" | "error" | "warn", message: string, meta?: any) {
     const timestamp = new Date().toISOString();
-    console.log(
-      JSON.stringify({
-        timestamp,
-        level,
-        message,
-        ...meta,
-      }),
-    );
+    const logData = {
+      timestamp,
+      level,
+      message,
+      ...meta,
+    };
+    console.log(JSON.stringify(logData));
+    // Also print a human readable version for easier debugging during development
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[${level.toUpperCase()}] ${message}`, meta ? meta : "");
+    }
   }
 
   async checkHealth(): Promise<{
     github: boolean;
     jira: boolean;
-    ollama: boolean;
+    ai: boolean;
   }> {
-    const [github, jira, ollama] = await Promise.all([
+    const [github, jira, ai] = await Promise.all([
       this.github.checkHealth(),
       this.jira.checkHealth(),
-      this.ollama.checkHealth(),
+      this.aiService.checkHealth(),
     ]);
 
-    return { github, jira, ollama };
+    return { github, jira, ai };
+  }
+
+  async getCurrentUser() {
+    return this.jira.getCurrentUser();
   }
 
   shouldProcessTicket(payload: any): boolean {
@@ -103,9 +125,12 @@ export class AutonomousAgent {
 
     try {
       // 1. Fetch ticket details from Jira
-      this.log("info", "Fetching ticket details", { ticketId });
+      this.log("info", "[Step 1] Fetching ticket details", { ticketId });
       const ticketData = await this.jira.getTicket(ticketId);
       initialStatus = ticketData.fields.status.name;
+      this.log("info", "[Step 1] Ticket details fetched", {
+        status: initialStatus,
+      });
 
       // Skip if already processing or completed
       if (
@@ -137,7 +162,7 @@ export class AutonomousAgent {
       };
 
       // 2. Transition to "In Progress"
-      this.log("info", "Transitioning ticket status", {
+      this.log("info", "[Step 2] Transitioning ticket status", {
         ticketId,
         toStatus: "In Progress",
       });
@@ -146,58 +171,109 @@ export class AutonomousAgent {
         type: "ticket_update",
         payload: { status: "In Progress" },
       });
+      this.log("info", "[Step 2] Ticket status transitioned");
 
-      // 3. Analyze ticket with Ollama
-      this.log("info", "Analyzing ticket with AI", { ticketId });
+      // 3. Analyze ticket with AI
+      this.log("info", "[Step 3] Starting AI Analysis", { ticketId });
 
-      // Fetch codebase structure
-      this.log("info", "Fetching codebase structure", { ticketId });
-      const structure = await this.github.getRepoStructure(
-        this.targetOwner,
-        this.targetRepo,
-      );
+      let structure: (string | undefined)[] = [];
+      try {
+        // Fetch codebase structure
+        this.log("info", "[Step 3.1] Fetching codebase structure", {
+          ticketId,
+        });
+        structure = await this.github.getRepoStructure(
+          this.targetOwner,
+          this.targetRepo,
+        );
+        this.log("info", "[Step 3.1] Codebase structure fetched", {
+          fileCount: structure.length,
+        });
+      } catch (error: any) {
+        this.log("error", "[Step 3.1] Failed to fetch codebase structure", {
+          error: error.message,
+        });
+        throw new Error(`Failed to fetch codebase structure: ${error.message}`);
+      }
 
-      const analysis = await this.ollama.analyzeTicket(
-        ticket.title,
-        ticket.description,
-        { structure },
-      );
+      let analysis;
+      try {
+        this.log("info", "[Step 3.2] Calling AI Service analyzeTicket", {
+          provider:
+            this.aiService instanceof GeminiService ? "Gemini" : "Ollama",
+        });
+
+        analysis = await this.aiService.analyzeTicket(
+          ticket.title,
+          ticket.description,
+          { structure },
+        );
+
+        this.log("info", "[Step 3.2] AI Service analysis returned", {
+          analysisSummary: analysis.summary,
+        });
+      } catch (error: any) {
+        this.log("error", "[Step 3.2] AI Analysis failed", {
+          error: error.message,
+        });
+        throw new Error(`AI Analysis failed: ${error.message}`);
+      }
 
       const filesToChange = analysis.filesToChange || [];
-      if (filesToChange.length === 0) {
-        throw new Error(
-          "AI could not identify files to change. Manual intervention required.",
-        );
+      const newFilesToCreate = analysis.newFilesToCreate || [];
+
+      if (filesToChange.length === 0 && newFilesToCreate.length === 0) {
+        const errorMsg =
+          "AI could not identify files to change or create. Manual intervention required.";
+        this.log("error", `[Step 3] ${errorMsg}`);
+        throw new Error(errorMsg);
       }
-      this.log("info", "AI analysis complete", {
+      this.log("info", "[Step 3] AI analysis complete", {
         ticketId,
         filesToChange,
+        newFilesToCreate,
         complexity: analysis.complexity,
       });
 
       // 4. Create Feature Branch
-      const branchName = `feature/${ticketId.toLowerCase()}-${Date.now()}`;
-      this.log("info", "Creating feature branch", { ticketId, branchName });
+      let slugifiedTitle = ticket.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)+/g, "");
+
+      if (!slugifiedTitle) {
+        slugifiedTitle = "feature";
+      }
+
+      const branchName = `feature/${ticketId.toLowerCase()}-${slugifiedTitle}`;
+      this.log("info", "[Step 4] Creating feature branch", {
+        ticketId,
+        branchName,
+      });
       await this.github.createBranch(
         this.targetOwner,
         this.targetRepo,
         branchName,
       );
       actions.push({ type: "branch_create", payload: { branch: branchName } });
+      this.log("info", "[Step 4] Feature branch created");
 
       // 5. Generate Code and Commit for each file
       const allFiles = [...filesToChange, ...(analysis.newFilesToCreate || [])];
       // Deduplicate files
       const uniqueFiles = Array.from(new Set(allFiles));
+      this.log("info", "[Step 5] Processing files", { uniqueFiles });
 
       for (const filePath of uniqueFiles) {
-        this.log("info", "Processing file", { ticketId, filePath });
+        this.log("info", `[Step 5.1] Processing file: ${filePath}`, {
+          ticketId,
+        });
 
         // Fetch existing content
-        this.log("info", "Fetching existing file content", {
-          ticketId,
-          filePath,
-        });
+        this.log(
+          "info",
+          `[Step 5.2] Fetching existing content for ${filePath}`,
+        );
 
         let existingContent = "";
         try {
@@ -209,38 +285,28 @@ export class AutonomousAgent {
           );
           existingContent = content || "";
         } catch (error) {
-          this.log("info", "File not found, treating as new file", {
-            ticketId,
-            filePath,
-          });
+          this.log(
+            "info",
+            `[Step 5.2] File not found, treating as new file: ${filePath}`,
+          );
           existingContent = "";
         }
 
         // Generate new content
-        this.log("info", "Generating code with AI", { ticketId, filePath });
+        this.log("info", `[Step 5.3] Generating code for ${filePath}`);
 
-        this.log("info", "Analysis for file", {
-          ticketId,
-          filePath,
-          analysisSummary: analysis.summary,
-        });
-
-        const { code, explanation } = await this.ollama.generateCode(
+        const { code, explanation } = await this.aiService.generateCode(
           ticket,
           existingContent,
           filePath,
           analysis,
         );
-        this.log("info", "Code generation successful", {
-          ticketId,
-          filePath,
+        this.log("info", `[Step 5.3] Code generated for ${filePath}`, {
           codeLength: code.length,
         });
 
         // Commit changes
-        this.log("info", "Committing changes to branch", {
-          ticketId,
-          filePath,
+        this.log("info", `[Step 5.4] Committing changes for ${filePath}`, {
           branchName,
         });
         await this.github.createOrUpdateFile(
@@ -252,10 +318,11 @@ export class AutonomousAgent {
           branchName,
         );
         actions.push({ type: "code_change", payload: { file: filePath } });
+        this.log("info", `[Step 5.4] Changes committed for ${filePath}`);
       }
 
       // 6. Create Pull Request
-      this.log("info", "Creating Pull Request", { ticketId });
+      this.log("info", "[Step 6] Creating Pull Request", { ticketId });
       const pr = await this.github.createPullRequest(
         this.targetOwner,
         this.targetRepo,
