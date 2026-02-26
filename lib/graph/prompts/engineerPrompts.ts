@@ -34,13 +34,32 @@ function getFileRequirements(filePath: string): string {
   return "Follow TypeScript and React best practices";
 }
 
-export function getEngineerSystemPrompt(filePath: string): string {
+export function getEngineerSystemPrompt(
+  filePath: string,
+  projectContext: string,
+): string {
   const requirements = getFileRequirements(filePath);
 
   return `You are an expert Next.js Frontend Engineer. 
 Your Product Manager has provided a strict architectural plan. 
 Write the complete, runnable code for the exact files requested in the plan. 
 Output only the raw code. Do not hallucinate new features or routes outside the provided plan.
+
+PROJECT COMPATIBILITY REQUIREMENTS:
+${projectContext}
+
+STRICT COMPATIBILITY RULES:
+- Use ONLY the Tailwind version syntax shown in the project config
+- Import ONLY fonts that are already configured in layout.tsx  
+- Follow the exact Next.js config format currently used
+- Use existing component patterns and naming conventions
+- Import dependencies that are already in package.json
+
+DO NOT:
+- Introduce new configuration formats
+- Reference unavailable fonts or packages
+- Use incompatible syntax versions
+- Break existing build processes
 
 CRITICAL CODING STANDARDS:
 1. COMPLETE CODE: Generate the full file content. Do not use placeholders like "// ... rest of code".
@@ -51,6 +70,13 @@ CRITICAL CODING STANDARDS:
 6. ERROR HANDLING: Implement proper try/catch blocks and UI error states.
 7. ACCESSIBILITY: Ensure proper ARIA attributes and semantic HTML.
 8. EXPORTS: Ensure the component or function is properly exported (usually default for components).
+
+COMPLETE IMPLEMENTATION REQUIREMENTS:
+- Include realistic mock data or API integration
+- Implement proper loading states with actual state management  
+- Add error boundaries that handle real error scenarios
+- Create complete component lifecycle, not just static UI
+- Include proper TypeScript interfaces for all data structures
 
 SPECIFIC REQUIREMENTS FOR THIS FILE (${filePath}):
 ${requirements}`;

@@ -13,9 +13,18 @@ import {
  * 3. Output the generated code objects.
  */
 export async function frontendEngineerNode(state: typeof AgentState.State) {
-  const { executionPlan } = state;
+  const {
+    executionPlan,
+    projectContext,
+    architectureProfile,
+    validationErrors,
+    needsRevision,
+  } = state;
 
   console.log("\n💻 [Engineer Node] Starting code generation...");
+  if (needsRevision && validationErrors?.length > 0) {
+    console.log("   ⚠️ Addressing validation errors:", validationErrors);
+  }
   console.log(
     "Files to create/modify:",
     (executionPlan.newFilesToCreate || []).concat(
@@ -37,16 +46,36 @@ export async function frontendEngineerNode(state: typeof AgentState.State) {
   // Deduplicate
   const uniqueFiles = Array.from(new Set(allFiles));
 
+  // Use architecture profile if available, otherwise fallback to raw context
+  const contextString = architectureProfile
+    ? `ARCHITECTURE PROFILE:
+- Next.js: ${architectureProfile.nextJsVersion}
+- Tailwind: ${architectureProfile.tailwindVersion}
+- Styling: ${architectureProfile.stylingApproach}
+- Components: ${architectureProfile.componentPatterns.join(", ")}
+- API Patterns: ${architectureProfile.apiPatterns.join(", ")}
+- Fonts: ${architectureProfile.fonts.join(", ")}`
+    : projectContext;
+
   for (const filePath of uniqueFiles) {
     console.log(`Engineer Agent: Generating code for ${filePath}...`);
 
-    const systemPrompt = getEngineerSystemPrompt(filePath);
+    const systemPrompt = getEngineerSystemPrompt(filePath, contextString);
 
-    const userPrompt = getEngineerUserPrompt(
+    let userPrompt = getEngineerUserPrompt(
       executionPlan.featureScope,
       executionPlan.implementationInstructions,
       filePath,
     );
+
+    if (needsRevision && validationErrors && validationErrors.length > 0) {
+      userPrompt += `
+      
+VALIDATION FAILED - PLEASE FIX THESE ISSUES:
+The previous code generation had the following errors. You must fix them in this new version:
+${validationErrors.map((e) => `- ${e}`).join("\n")}
+`;
+    }
 
     const result = await model.invoke([
       ["system", systemPrompt],

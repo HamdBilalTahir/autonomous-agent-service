@@ -33,11 +33,24 @@ export async function pmNode(state: typeof AgentState.State) {
   // System prompt
   const systemPrompt = PM_SYSTEM_PROMPT;
 
+  // Format architecture profile for the prompt
+  const profileString = state.architectureProfile
+    ? `ARCHITECTURE PROFILE:
+- Next.js: ${state.architectureProfile.nextJsVersion} (${state.architectureProfile.configStyle})
+- Tailwind: ${state.architectureProfile.tailwindVersion}
+- Styling: ${state.architectureProfile.stylingApproach}
+- Components: ${state.architectureProfile.componentPatterns.join(", ")}
+- State Management: ${state.architectureProfile.stateManagement.join(", ")}
+- API Patterns: ${state.architectureProfile.apiPatterns.join(", ")}
+- Fonts: ${state.architectureProfile.fonts.join(", ")}`
+    : state.projectContext; // Fallback
+
   // User prompt with context
   const userPrompt = getPMUserPrompt(
     ticketSummary,
     ticketDescription,
     codebaseTree,
+    profileString,
   );
 
   console.log(

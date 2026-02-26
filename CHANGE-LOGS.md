@@ -6,6 +6,62 @@
 
 ---
 
+> ### Architecture Understanding Agent
+>
+> - **What changed:** Implemented a specialized Architecture Agent that scans the codebase to generate a structured `ArchitectureProfile` (Next.js version, Tailwind, component patterns, etc.) before any planning occurs.
+> - **Why:** Ensure all downstream agents (PM, Engineer, Validation) operate with a deep, accurate understanding of the project's architectural standards and configuration.
+> - **Files:**
+>   - `lib/graph/nodes/architectureNode.ts`
+>   - `lib/graph/schema.ts`
+>   - `lib/graph/prompts/architecturePrompts.ts`
+>   - `lib/graph/index.ts`
+>   - `lib/graph/state.ts`
+>   - `lib/graph/nodes/pmNode.ts`
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/graph/nodes/validationNode.ts`
+
+> ### Code Validation Agent
+>
+> - **What changed:** Implemented a new `validationNode` in the LangGraph workflow that reviews generated code for TypeScript errors, broken imports, and configuration compatibility.
+> - **Why:** Introduce a quality control step that automatically detects issues and routes the workflow back to the Engineer Agent for revision before finalizing the code.
+> - **Files:**
+>   - `lib/graph/nodes/validationNode.ts`
+>   - `lib/graph/index.ts`
+>   - `lib/graph/state.ts`
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+
+> ### Enhanced Engineering Implementation Requirements
+>
+> - **What changed:** Added strict requirements for realistic data flow, state management, error handling, and component lifecycles to the Engineer Agent's prompt.
+> - **Why:** Ensure generated components are production-ready with proper loading states, error boundaries, and TypeScript interfaces, rather than just static UI shells.
+> - **Files:**
+>   - `lib/graph/prompts/engineerPrompts.ts`
+
+> ### Context-Aware Engineer Prompts
+>
+> - **What changed:** Updated `getEngineerSystemPrompt` to inject project context and strict compatibility rules into the Frontend Engineer Agent's instructions.
+> - **Why:** Ensure generated code adheres to existing project versions (Next.js, Tailwind), fonts, and conventions.
+> - **Files:**
+>   - `lib/graph/prompts/engineerPrompts.ts`
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/graph/state.ts`
+
+> ### Automated Project Context Analysis
+>
+> - **What changed:** Implemented `analyzeProjectContext` helper and integrated it into the PM Agent node to automatically read `package.json`, `next.config.*`, `tailwind.config.*`, and `layout.tsx`.
+> - **Why:** Provide the PM Agent with real-time, accurate technical context about the project's configuration and dependencies.
+> - **Files:**
+>   - `lib/project-context.ts`
+>   - `lib/graph/nodes/pmNode.ts`
+>   - `lib/graph/prompts/pmPrompts.ts`
+
+> ### PM Agent Context Awareness
+>
+> - **What changed:** Updated `PM_SYSTEM_PROMPT` to mandate analysis of existing project configuration (Next.js, Tailwind, fonts, etc.) before planning.
+> - **Why:** Prevent architectural decisions that are incompatible with the existing project setup.
+> - **Files:**
+>   - `lib/graph/prompts/pmPrompts.ts`
+
 > ### LangGraph State Definition
 >
 > - **What changed:** Defined the shared `AgentState` interface and installed LangGraph dependencies to enable multi-agent orchestration.

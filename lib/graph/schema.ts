@@ -35,3 +35,26 @@ export const ExecutionPlanSchema = z.object({
 
 // Export the TypeScript type for use in our LangGraph State
 export type ExecutionPlan = z.infer<typeof ExecutionPlanSchema>;
+
+export const ArchitectureProfileSchema = z.object({
+  nextJsVersion: z.string().describe("Detected Next.js version."),
+  configStyle: z
+    .string()
+    .describe("Next.js configuration format (e.g., next.config.js)."),
+  tailwindVersion: z.string().describe("Detected Tailwind CSS version."),
+  fonts: z.array(z.string()).describe("List of available/configured fonts."),
+  componentPatterns: z
+    .array(z.string())
+    .describe("Identified component patterns (e.g., atomic, feature-based)."),
+  stateManagement: z
+    .array(z.string())
+    .describe("State management libraries or patterns used."),
+  apiPatterns: z
+    .array(z.string())
+    .describe("API route patterns (e.g., app/api, pages/api)."),
+  stylingApproach: z
+    .string()
+    .describe("Primary styling approach (e.g., Tailwind, CSS Modules)."),
+});
+
+export type ArchitectureProfile = z.infer<typeof ArchitectureProfileSchema>;
