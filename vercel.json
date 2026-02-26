@@ -5,6 +5,9 @@
     },
     "api/process-ticket.ts": {
       "maxDuration": 300
+    },
+    "api/test.ts": {
+      "maxDuration": 300
     }
   }
 }

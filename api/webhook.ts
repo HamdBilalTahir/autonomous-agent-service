@@ -1,24 +1,27 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextApiRequest, NextApiResponse } from "next";
 
-export async function POST(req: NextRequest) {
+export default function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== "POST") {
+    res.setHeader("Allow", ["POST"]);
+    res.status(405).end(`Method ${req.method} Not Allowed`);
+    return;
+  }
+
   try {
-    const body = await req.json();
+    const body = req.body;
     console.log("Webhook received:", body);
 
-    return NextResponse.json({
+    res.status(200).json({
       status: "success",
       message: "Webhook received",
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
     console.error("Error processing webhook:", error);
-    return NextResponse.json(
-      {
-        status: "error",
-        message: "Internal Server Error",
-        timestamp: new Date().toISOString(),
-      },
-      { status: 500 },
-    );
+    res.status(500).json({
+      status: "error",
+      message: "Internal Server Error",
+      timestamp: new Date().toISOString(),
+    });
   }
 }
