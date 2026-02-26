@@ -1,0 +1,178 @@
+import { Octokit } from "@octokit/rest";
+
+export class GitHubService {
+  private octokit: Octokit;
+
+  constructor(token: string) {
+    this.octokit = new Octokit({
+      auth: token,
+    });
+  }
+
+  async getIssue(owner: string, repo: string, issueNumber: number) {
+    const { data } = await this.octokit.issues.get({
+      owner,
+      repo,
+      issue_number: issueNumber,
+    });
+    return data;
+  }
+
+  async createComment(
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    body: string,
+  ) {
+    await this.octokit.issues.createComment({
+      owner,
+      repo,
+      issue_number: issueNumber,
+      body,
+    });
+  }
+
+  async createPullRequest(
+    owner: string,
+    repo: string,
+    title: string,
+    head: string,
+    base: string,
+    body: string,
+  ) {
+    const { data } = await this.octokit.pulls.create({
+      owner,
+      repo,
+      title,
+      head,
+      base,
+      body,
+    });
+    return data;
+  }
+
+  async getReference(owner: string, repo: string, ref: string) {
+    const { data } = await this.octokit.git.getRef({
+      owner,
+      repo,
+      ref, // e.g. 'heads/main'
+    });
+    return data;
+  }
+
+  async createBranch(
+    owner: string,
+    repo: string,
+    branchName: string,
+    fromBranch: string = "main",
+  ) {
+    try {
+      // Get the sha of the fromBranch
+      const ref = await this.getReference(owner, repo, `heads/${fromBranch}`);
+      const sha = ref.object.sha;
+
+      // Create the new branch
+      await this.octokit.git.createRef({
+        owner,
+        repo,
+        ref: `refs/heads/${branchName}`,
+        sha,
+      });
+      console.log(`Created branch ${branchName} from ${fromBranch}`);
+    } catch (error: any) {
+      if (error.status === 422) {
+        console.log(`Branch ${branchName} likely already exists.`);
+        return; // Assume exists
+      }
+      throw error;
+    }
+  }
+
+  async getFileContent(
+    owner: string,
+    repo: string,
+    path: string,
+    ref?: string,
+  ) {
+    try {
+      const { data } = await this.octokit.repos.getContent({
+        owner,
+        repo,
+        path,
+        ref,
+      });
+
+      if (Array.isArray(data) || !("content" in data)) {
+        throw new Error(`Path ${path} is a directory or invalid`);
+      }
+
+      return Buffer.from(data.content, "base64").toString("utf-8");
+    } catch (error: any) {
+      console.error(`Error fetching file ${path}:`, error.message);
+      return null;
+    }
+  }
+
+  async checkHealth(): Promise<boolean> {
+    try {
+      await this.octokit.users.getAuthenticated();
+      return true;
+    } catch (e) {
+      console.error("GitHub health check failed:", e);
+      return false;
+    }
+  }
+
+  async createOrUpdateFile(
+    owner: string,
+    repo: string,
+    path: string,
+    content: string,
+    message: string,
+    branch: string,
+  ) {
+    // Check if file exists to get sha (for update)
+    let sha: string | undefined;
+    try {
+      const { data } = await this.octokit.repos.getContent({
+        owner,
+        repo,
+        path,
+        ref: branch,
+      });
+      if (!Array.isArray(data) && "sha" in data) {
+        sha = data.sha;
+      }
+    } catch (e) {
+      // File doesn't exist, which is fine for creation
+    }
+
+    await this.octokit.repos.createOrUpdateFileContents({
+      owner,
+      repo,
+      path,
+      message,
+      content: Buffer.from(content).toString("base64"),
+      branch,
+      sha,
+    });
+  }
+
+  async listFiles(owner: string, repo: string, path: string = "") {
+    // This is a simplified list, might need recursive tree for full codebase
+    const { data } = await this.octokit.repos.getContent({
+      owner,
+      repo,
+      path,
+    });
+
+    if (Array.isArray(data)) {
+      return data.map((item) => ({
+        name: item.name,
+        path: item.path,
+        type: item.type,
+      }));
+    }
+    return [];
+  }
+}

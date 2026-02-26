@@ -1,0 +1,140 @@
+export class JiraService {
+  private baseUrl: string;
+  private email: string;
+  private token: string;
+
+  constructor(baseUrl: string, email: string, token: string) {
+    this.baseUrl = baseUrl.startsWith("http") ? baseUrl : `https://${baseUrl}`;
+    this.email = email;
+    this.token = token;
+  }
+
+  private get headers() {
+    return {
+      Authorization: `Basic ${Buffer.from(
+        `${this.email}:${this.token}`,
+      ).toString("base64")}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
+  }
+
+  async checkHealth(): Promise<boolean> {
+    try {
+      // Use 'myself' endpoint which is standard
+      const response = await fetch(`${this.baseUrl}/rest/api/3/myself`, {
+        method: "GET",
+        headers: this.headers,
+      });
+      return response.ok;
+    } catch (e) {
+      console.error("Jira health check failed:", e);
+      return false;
+    }
+  }
+
+  async getTicket(ticketId: string) {
+    const response = await fetch(
+      `${this.baseUrl}/rest/api/3/issue/${ticketId}`,
+      {
+        method: "GET",
+        headers: this.headers,
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch ticket ${ticketId}: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    return response.json();
+  }
+
+  async getTransitions(ticketId: string) {
+    const response = await fetch(
+      `${this.baseUrl}/rest/api/3/issue/${ticketId}/transitions`,
+      {
+        method: "GET",
+        headers: this.headers,
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to get transitions for ${ticketId}: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    return response.json();
+  }
+
+  async transitionTicket(ticketId: string, targetStatus: string) {
+    // First, find the transition ID for the target status
+    const transitionsData = await this.getTransitions(ticketId);
+    const transition = transitionsData.transitions.find(
+      (t: any) => t.name.toLowerCase() === targetStatus.toLowerCase(),
+    );
+
+    if (!transition) {
+      console.warn(
+        `Transition to status "${targetStatus}" not found for ticket ${ticketId}. Available transitions: ${transitionsData.transitions
+          .map((t: any) => t.name)
+          .join(", ")}`,
+      );
+      return; // Or throw error, but maybe we just want to proceed
+    }
+
+    const response = await fetch(
+      `${this.baseUrl}/rest/api/3/issue/${ticketId}/transitions`,
+      {
+        method: "POST",
+        headers: this.headers,
+        body: JSON.stringify({
+          transition: {
+            id: transition.id,
+          },
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to transition ticket ${ticketId} to ${targetStatus}: ${response.status} ${response.statusText}`,
+      );
+    }
+  }
+
+  async addComment(ticketId: string, comment: string) {
+    const response = await fetch(
+      `${this.baseUrl}/rest/api/3/issue/${ticketId}/comment`,
+      {
+        method: "POST",
+        headers: this.headers,
+        body: JSON.stringify({
+          body: {
+            type: "doc",
+            version: 1,
+            content: [
+              {
+                type: "paragraph",
+                content: [
+                  {
+                    type: "text",
+                    text: comment,
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to add comment to ${ticketId}: ${response.status} ${response.statusText}`,
+      );
+    }
+  }
+}
