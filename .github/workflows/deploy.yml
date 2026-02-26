@@ -1,0 +1,65 @@
+name: Deploy to Vercel
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Environment Variables
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "Error: VERCEL_TOKEN secret is missing"
+            exit 1
+          fi
+          if [ -z "${{ secrets.VERCEL_ORG_ID }}" ]; then
+            echo "Error: VERCEL_ORG_ID secret is missing"
+            exit 1
+          fi
+          if [ -z "${{ secrets.VERCEL_PROJECT_ID }}" ]; then
+            echo "Error: VERCEL_PROJECT_ID secret is missing"
+            exit 1
+          fi
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel Environment Information
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build Project Artifacts
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy Project Artifacts to Vercel
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }} > deployment-url.txt
+
+      - name: Get Deployment URL
+        id: get_url
+        run: |
+          DEPLOYMENT_URL=$(cat deployment-url.txt)
+          echo "URL=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+
+      - name: Test Endpoints
+        run: |
+          URL="${{ steps.get_url.outputs.URL }}"
+          echo "Testing deployment at $URL"
+
+          # Wait for deployment to be ready
+          sleep 10
+
+          # Test Status Endpoint
+          curl -f "$URL/api/test" || exit 1
+
+          # Test Webhook Endpoint (Dry Run)
+          curl -f -X POST "$URL/api/webhook" \
+            -H "Content-Type: application/json" \
+            -d '{"test": true}' || exit 1
