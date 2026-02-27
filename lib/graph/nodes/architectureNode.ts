@@ -6,6 +6,9 @@ import {
   getArchitectureUserPrompt,
 } from "../prompts/architecturePrompts";
 import { analyzeProjectContext } from "../../project-context";
+import { getCached, setCached } from "../../cache";
+import { createHash } from "crypto";
+import { createTokenUsageCallback } from "../metrics-utils";
 
 /**
  * The Architecture Understanding Agent node.
@@ -15,11 +18,26 @@ import { analyzeProjectContext } from "../../project-context";
  * 3. Provide this context to downstream agents (PM, Engineer, Validation).
  */
 export async function architectureNode(state: typeof AgentState.State) {
+  const startTime = Date.now();
   console.log("\n🏛️ [Architecture Node] Analyzing project structure...");
 
   // Analyze the project context (files, configs)
   // This reuses the logic we built earlier, but now it feeds the Architecture Agent
   const rawProjectContext = await analyzeProjectContext();
+
+  // Generate cache key based on project context (which includes package.json content)
+  const hash = createHash("md5").update(rawProjectContext).digest("hex");
+  const cacheKey = `architecture_profile:${hash}`;
+
+  // Check cache
+  const cachedProfile = await getCached(cacheKey);
+  if (cachedProfile) {
+    console.log("⚡ [Architecture Node] Using cached profile.");
+    return {
+      architectureProfile: JSON.parse(cachedProfile),
+      projectContext: rawProjectContext,
+    };
+  }
 
   const model = new ChatGoogleGenerativeAI({
     model: process.env.GEMINI_MODEL || "gemini-1.5-pro",
@@ -37,10 +55,18 @@ export async function architectureNode(state: typeof AgentState.State) {
   const systemPrompt = ARCHITECTURE_SYSTEM_PROMPT;
   const userPrompt = getArchitectureUserPrompt(rawProjectContext);
 
-  const architectureProfile = await structuredModel.invoke([
-    ["system", systemPrompt],
-    ["user", userPrompt],
-  ]);
+  let tokenUsage = { prompt: 0, completion: 0, total: 0 };
+  const TokenHandler = createTokenUsageCallback(tokenUsage);
+
+  const architectureProfile = await structuredModel.invoke(
+    [
+      ["system", systemPrompt],
+      ["user", userPrompt],
+    ],
+    {
+      callbacks: [new TokenHandler()],
+    },
+  );
 
   console.log("✅ [Architecture Node] Profile Generated:");
   console.log(
@@ -49,6 +75,12 @@ export async function architectureNode(state: typeof AgentState.State) {
   console.log(`   Styling: ${architectureProfile.stylingApproach}`);
   console.log(`   Fonts: ${architectureProfile.fonts.join(", ")}`);
 
+  // Cache the result
+  await setCached(cacheKey, JSON.stringify(architectureProfile));
+
+  const duration = Date.now() - startTime;
+  console.log(`⏱️ [Architecture Node] Completed in ${duration}ms`);
+
   return {
     architectureProfile,
     // We can also keep the raw context string if needed, or let the profile replace it.
@@ -56,5 +88,13 @@ export async function architectureNode(state: typeof AgentState.State) {
     // To minimize breakage, we can keep 'projectContext' as the raw string,
     // and add 'architectureProfile' as the structured data.
     projectContext: rawProjectContext,
+    metrics: {
+      nodeExecutionTimes: {
+        architectureNode: duration,
+      },
+      nodeTokenUsage: {
+        architectureNode: tokenUsage,
+      },
+    },
   };
 }

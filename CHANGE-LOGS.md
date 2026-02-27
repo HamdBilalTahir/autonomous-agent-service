@@ -2,9 +2,114 @@
 
 ---
 
+### 🐛 Fixes
+
+---
+
+> ### Error Recovery & Rollback System
+>
+> - **What changed:** Implemented transaction-like rollback for GitHub/Jira operations and added retry logic with exponential backoff.
+> - **Why:** To prevent inconsistent states (orphaned branches, stuck Jira tickets) when agents fail mid-workflow due to network issues or API errors.
+> - **Files:**
+>   - `lib/graph/state.ts`
+>   - `lib/graph/metrics-utils.ts` (new)
+>   - `lib/graph/nodes/*.ts`
+>   - `app/api/process-ticket/route.ts`
+
+> ### Ticket Complexity Assessment & Routing
+>
+> - **What changed:** Introduced a `triageNode` to classify tickets as Low/Medium/High complexity and route simple tasks to a fast-track workflow, bypassing heavy planning stages.
+> - **Why:** To optimize resource usage and reduce latency for simple changes like styling or text updates.
+> - **Files:**
+>   - `lib/graph/nodes/triageNode.ts` (new)
+>   - `lib/graph/prompts/triagePrompts.ts` (new)
+>   - `lib/graph/index.ts`
+>   - `lib/graph/state.ts`
+>   - `lib/graph/schema.ts`
+
+> ### Enhanced Git Conventions
+>
+> - **What changed:** Updated branch naming to use ticket classification prefixes (e.g., `feature/`, `bugfix/`) and AI-generated concise slugs (2-4 words). Added Conventional Commits support based on ticket type.
+> - **Why:** To improve repository hygiene and make branch names more readable and semantic (e.g., `feature/PROJ-123-add-login-page`).
+> - **Files:**
+>   - `lib/github.ts`
+>   - `app/api/process-ticket/route.ts`
+>   - `lib/graph/schema.ts`
+>   - `lib/graph/prompts/triagePrompts.ts`
+
 ### ✨ Features
 
 ---
+
+> ### Agent Performance Monitoring
+>
+> - **What changed:** Implemented comprehensive metrics collection (execution time, token usage, validation retries) across all agent nodes and added a detailed performance report to the workflow logs.
+> - **Why:** To provide visibility into agent costs, latency bottlenecks, and reliability issues without needing external monitoring tools.
+> - **Files:**
+>   - `lib/graph/state.ts`
+>   - `lib/graph/metrics-utils.ts` (new)
+>   - `lib/graph/nodes/*.ts`
+>   - `app/api/process-ticket/route.ts`
+
+---
+
+> ### Rename Engineer to Frontend Engineer
+>
+> - **What changed:** Renamed `engineerPrompts.ts` to `frontendEngineerPrompts.ts` and updated all internal references from "Engineer" to "Frontend Engineer".
+> - **Why:** To clarify the role of the agent as specifically focused on frontend implementation.
+> - **Files:**
+>   - `lib/graph/prompts/frontendEngineerPrompts.ts`
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+
+> ### Workflow Optimization & Caching
+>
+> - **What changed:** Implemented architecture profile caching using Redis (or fallback) and parallelized independent workflow steps (Design & Jira updates).
+> - **Why:** To significantly reduce execution time by avoiding redundant analysis and running non-blocking operations concurrently.
+> - **Files:**
+>   - `lib/graph/nodes/architectureNode.ts`
+>   - `lib/graph/index.ts`
+>   - `lib/cache.ts`
+>   - `package.json`
+
+> ### Smart Branch Naming & Conflict Resolution
+>
+> - **What changed:** Implemented `generateBranchName` with a 3-tier fallback strategy (slug → timestamp → hash) and pre-creation existence checking.
+> - **Why:** To prevent PR failures caused by duplicate branch names and ensure clean, non-conflicting Git history.
+> - **Files:**
+>   - `lib/github.ts`
+
+> ### Improved Validation Feedback Loop
+>
+> - **What changed:** Enhanced the Validation Agent to provide structured, actionable TypeScript error fixes and implemented a retry limit (max 3) to prevent infinite loops.
+> - **Why:** To resolve persistent compilation errors more effectively and prevent the agent from getting stuck in cycles of ineffective fixes.
+> - **Files:**
+>   - `lib/graph/nodes/validationNode.ts`
+>   - `lib/graph/state.ts`
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/graph/prompts/engineerPrompts.ts`
+
+> ### World-Class UI/UX Design Agent
+>
+> - **What changed:** Implemented a dedicated Design Agent node that generates comprehensive design specifications (color, typography, spacing, animations) before code generation.
+> - **Why:** To ensure generated components match the quality and sophistication of top-tier products like Linear and Stripe, enforcing consistent design patterns.
+> - **Files:**
+>   - `lib/graph/nodes/designNode.ts`
+>   - `lib/graph/prompts/designPrompts.ts`
+>   - `lib/graph/schema.ts`
+>   - `lib/graph/state.ts`
+>   - `lib/graph/index.ts`
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/graph/prompts/engineerPrompts.ts`
+
+> ### Immediate Jira Metadata Updates
+>
+> - **What changed:** Added a new `updateJiraMetadataNode` to the LangGraph workflow.
+> - **Why:** To update Jira priority and story points immediately after PM analysis, providing faster feedback to users.
+> - **Files:**
+>   - `lib/graph/nodes/updateJiraMetadataNode.ts`
+>   - `lib/graph/index.ts`
+>   - `lib/graph/state.ts`
+>   - `app/api/process-ticket/route.ts`
 
 > ### Architecture Understanding Agent
 >

@@ -1,3 +1,5 @@
+import { withRetry } from "./utils/retry";
+
 let STASHED_SP_ID: string | null = null;
 
 export class JiraService {
@@ -23,12 +25,14 @@ export class JiraService {
 
   async checkHealth(): Promise<boolean> {
     try {
-      // Use 'myself' endpoint which is standard
-      const response = await fetch(`${this.baseUrl}/rest/api/3/myself`, {
-        method: "GET",
-        headers: this.headers,
+      return await withRetry(async () => {
+        // Use 'myself' endpoint which is standard
+        const response = await fetch(`${this.baseUrl}/rest/api/3/myself`, {
+          method: "GET",
+          headers: this.headers,
+        });
+        return response.ok;
       });
-      return response.ok;
     } catch (e) {
       console.error("Jira health check failed:", e);
       return false;
@@ -37,18 +41,20 @@ export class JiraService {
 
   async getCurrentUser() {
     try {
-      const response = await fetch(`${this.baseUrl}/rest/api/3/myself`, {
-        method: "GET",
-        headers: this.headers,
+      return await withRetry(async () => {
+        const response = await fetch(`${this.baseUrl}/rest/api/3/myself`, {
+          method: "GET",
+          headers: this.headers,
+        });
+
+        if (!response.ok) {
+          throw new Error(
+            `Failed to get current user: ${response.status} ${response.statusText}`,
+          );
+        }
+
+        return response.json();
       });
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to get current user: ${response.status} ${response.statusText}`,
-        );
-      }
-
-      return response.json();
     } catch (e) {
       console.error("Get current user failed:", e);
       return null;
@@ -56,81 +62,88 @@ export class JiraService {
   }
 
   async getTicket(ticketId: string) {
-    const response = await fetch(
-      `${this.baseUrl}/rest/api/3/issue/${ticketId}`,
-      {
-        method: "GET",
-        headers: this.headers,
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch ticket ${ticketId}: ${response.status} ${response.statusText}`,
+    return await withRetry(async () => {
+      const response = await fetch(
+        `${this.baseUrl}/rest/api/3/issue/${ticketId}`,
+        {
+          method: "GET",
+          headers: this.headers,
+        },
       );
-    }
 
-    return response.json();
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch ticket ${ticketId}: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      return response.json();
+    });
   }
 
   async getTransitions(ticketId: string) {
-    const response = await fetch(
-      `${this.baseUrl}/rest/api/3/issue/${ticketId}/transitions`,
-      {
-        method: "GET",
-        headers: this.headers,
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        `Failed to get transitions for ${ticketId}: ${response.status} ${response.statusText}`,
+    return await withRetry(async () => {
+      const response = await fetch(
+        `${this.baseUrl}/rest/api/3/issue/${ticketId}/transitions`,
+        {
+          method: "GET",
+          headers: this.headers,
+        },
       );
-    }
 
-    return response.json();
+      if (!response.ok) {
+        throw new Error(
+          `Failed to get transitions for ${ticketId}: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      return response.json();
+    });
   }
 
   async transitionTicket(ticketId: string, targetStatus: string) {
     console.log(
       `[Jira] Transitioning ticket ${ticketId} to ${targetStatus}...`,
     );
-    // First, find the transition ID for the target status
-    const transitionsData = await this.getTransitions(ticketId);
-    const transition = transitionsData.transitions.find(
-      (t: any) => t.name.toLowerCase() === targetStatus.toLowerCase(),
-    );
-
-    if (!transition) {
-      console.warn(
-        `Transition to status "${targetStatus}" not found for ticket ${ticketId}. Available transitions: ${transitionsData.transitions
-          .map((t: any) => t.name)
-          .join(", ")}`,
+    await withRetry(async () => {
+      // First, find the transition ID for the target status
+      // Note: We don't wrap this internal call in another withRetry since it's already wrapped
+      const transitionsData = await this.getTransitions(ticketId);
+      const transition = transitionsData.transitions.find(
+        (t: any) => t.name.toLowerCase() === targetStatus.toLowerCase(),
       );
-      return; // Or throw error, but maybe we just want to proceed
-    }
 
-    const response = await fetch(
-      `${this.baseUrl}/rest/api/3/issue/${ticketId}/transitions`,
-      {
-        method: "POST",
-        headers: this.headers,
-        body: JSON.stringify({
-          transition: {
-            id: transition.id,
-          },
-        }),
-      },
-    );
+      if (!transition) {
+        console.warn(
+          `Transition to status "${targetStatus}" not found for ticket ${ticketId}. Available transitions: ${transitionsData.transitions
+            .map((t: any) => t.name)
+            .join(", ")}`,
+        );
+        return; // Or throw error, but maybe we just want to proceed
+      }
 
-    if (!response.ok) {
-      throw new Error(
-        `Failed to transition ticket ${ticketId} to ${targetStatus}: ${response.status} ${response.statusText}`,
+      const response = await fetch(
+        `${this.baseUrl}/rest/api/3/issue/${ticketId}/transitions`,
+        {
+          method: "POST",
+          headers: this.headers,
+          body: JSON.stringify({
+            transition: {
+              id: transition.id,
+            },
+          }),
+        },
       );
-    }
-    console.log(
-      `[Jira] Successfully transitioned ${ticketId} to ${targetStatus}`,
-    );
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to transition ticket ${ticketId} to ${targetStatus}: ${response.status} ${response.statusText}`,
+        );
+      }
+      console.log(
+        `[Jira] Successfully transitioned ${ticketId} to ${targetStatus}`,
+      );
+    });
   }
 
   async addComment(ticketId: string, comment: string | any) {
@@ -140,42 +153,69 @@ export class JiraService {
       `[Jira] Adding comment to ${ticketId}: ${logComment.substring(0, 50)}...`,
     );
 
-    const bodyPayload =
-      typeof comment === "string"
-        ? {
-            body: {
-              type: "doc",
-              version: 1,
-              content: [
-                {
-                  type: "paragraph",
-                  content: [
-                    {
-                      type: "text",
-                      text: comment,
-                    },
-                  ],
-                },
-              ],
-            },
-          }
-        : { body: comment };
+    return await withRetry(async () => {
+      const bodyPayload =
+        typeof comment === "string"
+          ? {
+              body: {
+                type: "doc",
+                version: 1,
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [
+                      {
+                        type: "text",
+                        text: comment,
+                      },
+                    ],
+                  },
+                ],
+              },
+            }
+          : { body: comment };
 
-    const response = await fetch(
-      `${this.baseUrl}/rest/api/3/issue/${ticketId}/comment`,
-      {
-        method: "POST",
-        headers: this.headers,
-        body: JSON.stringify(bodyPayload),
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        `Failed to add comment to ${ticketId}: ${response.status} ${response.statusText}`,
+      const response = await fetch(
+        `${this.baseUrl}/rest/api/3/issue/${ticketId}/comment`,
+        {
+          method: "POST",
+          headers: this.headers,
+          body: JSON.stringify(bodyPayload),
+        },
       );
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to add comment to ${ticketId}: ${response.status} ${response.statusText}`,
+        );
+      }
+      console.log(`[Jira] Successfully added comment to ${ticketId}`);
+      return await response.json();
+    });
+  }
+
+  async deleteComment(ticketId: string, commentId: string) {
+    console.log(`[Jira] Deleting comment ${commentId} from ${ticketId}...`);
+    try {
+      await withRetry(async () => {
+        const response = await fetch(
+          `${this.baseUrl}/rest/api/3/issue/${ticketId}/comment/${commentId}`,
+          {
+            method: "DELETE",
+            headers: this.headers,
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            `Failed to delete comment ${commentId}: ${response.status} ${response.statusText}`,
+          );
+        }
+      });
+      console.log(`[Jira] Successfully deleted comment ${commentId}`);
+    } catch (e: any) {
+      console.warn(`[Jira] Failed to delete comment ${commentId}:`, e.message);
     }
-    console.log(`[Jira] Successfully added comment to ${ticketId}`);
   }
 
   async linkPRAndTransitionTicket(
@@ -183,6 +223,7 @@ export class JiraService {
     prUrl: string,
     targetStatus: string,
   ) {
+    let commentId: string | undefined;
     try {
       console.log(
         `[Jira] Linking PR ${prUrl} to ticket ${ticketKey} and transitioning to ${targetStatus}...`,
@@ -217,7 +258,8 @@ export class JiraService {
         ],
       };
 
-      await this.addComment(ticketKey, adfBody);
+      const commentData = await this.addComment(ticketKey, adfBody);
+      commentId = commentData.id;
 
       await this.transitionTicket(ticketKey, targetStatus);
 
@@ -229,6 +271,11 @@ export class JiraService {
         `[Jira] Failed to link PR and transition ticket ${ticketKey}:`,
         error,
       );
+      // Rollback: delete comment if transition failed
+      if (commentId) {
+        console.log(`[Jira] Rolling back comment ${commentId}...`);
+        await this.deleteComment(ticketKey, commentId);
+      }
       // Graceful degradation: do not throw error to ensure the process completes
     }
   }
@@ -239,33 +286,35 @@ export class JiraService {
     }
 
     try {
-      console.log("[JiraService] Fetching fields to find Story Points ID...");
-      const response = await fetch(`${this.baseUrl}/rest/api/3/field`, {
-        method: "GET",
-        headers: this.headers,
-      });
+      return await withRetry(async () => {
+        console.log("[JiraService] Fetching fields to find Story Points ID...");
+        const response = await fetch(`${this.baseUrl}/rest/api/3/field`, {
+          method: "GET",
+          headers: this.headers,
+        });
 
-      if (!response.ok) {
-        console.error(
-          `[JiraService] Failed to fetch fields: ${response.status}`,
+        if (!response.ok) {
+          console.error(
+            `[JiraService] Failed to fetch fields: ${response.status}`,
+          );
+          return null;
+        }
+
+        const fields = await response.json();
+        const storyPointsField = fields.find(
+          (f: any) =>
+            f.name === "Story point estimate" || f.name === "Story Points",
         );
-        return null;
-      }
 
-      const fields = await response.json();
-      const storyPointsField = fields.find(
-        (f: any) =>
-          f.name === "Story point estimate" || f.name === "Story Points",
-      );
-
-      if (storyPointsField) {
-        STASHED_SP_ID = storyPointsField.id;
-        console.log(`[JiraService] Found Story Points ID: ${STASHED_SP_ID}`);
-        return STASHED_SP_ID;
-      } else {
-        console.warn("[JiraService] 'Story point estimate' field not found.");
-        return null;
-      }
+        if (storyPointsField) {
+          STASHED_SP_ID = storyPointsField.id;
+          console.log(`[JiraService] Found Story Points ID: ${STASHED_SP_ID}`);
+          return STASHED_SP_ID;
+        } else {
+          console.warn("[JiraService] 'Story point estimate' field not found.");
+          return null;
+        }
+      });
     } catch (e) {
       console.error("[JiraService] Error fetching fields:", e);
       return null;
@@ -307,27 +356,29 @@ export class JiraService {
     }
 
     try {
-      console.log(
-        `[JiraService] Updating ${ticketKey}: Priority=${priority}, StoryPoints=${storyPoints}`,
-      );
-      const response = await fetch(
-        `${this.baseUrl}/rest/api/3/issue/${ticketKey}`,
-        {
-          method: "PUT",
-          headers: this.headers,
-          body: JSON.stringify({ fields }),
-        },
-      );
-
-      if (!response.ok) {
-        // If priority update fails (e.g. invalid priority name), try to parse error
-        const errorText = await response.text();
-        throw new Error(
-          `Failed to update ticket metadata: ${response.status} ${response.statusText} - ${errorText}`,
+      await withRetry(async () => {
+        console.log(
+          `[JiraService] Updating ${ticketKey}: Priority=${priority}, StoryPoints=${storyPoints}`,
         );
-      }
+        const response = await fetch(
+          `${this.baseUrl}/rest/api/3/issue/${ticketKey}`,
+          {
+            method: "PUT",
+            headers: this.headers,
+            body: JSON.stringify({ fields }),
+          },
+        );
 
-      console.log(`[Jira] Successfully updated metadata for ${ticketKey}`);
+        if (!response.ok) {
+          // If priority update fails (e.g. invalid priority name), try to parse error
+          const errorText = await response.text();
+          throw new Error(
+            `Failed to update ticket metadata: ${response.status} ${response.statusText} - ${errorText}`,
+          );
+        }
+
+        console.log(`[Jira] Successfully updated metadata for ${ticketKey}`);
+      });
     } catch (error: any) {
       console.error(
         `[Jira] Failed to update metadata for ${ticketKey}:`,

@@ -34,14 +34,24 @@ function getFileRequirements(filePath: string): string {
   return "Follow TypeScript and React best practices";
 }
 
-export function getEngineerSystemPrompt(
+export function getFrontendEngineerSystemPrompt(
   filePath: string,
   projectContext: string,
+  designSpecs?: string,
 ): string {
   const requirements = getFileRequirements(filePath);
 
+  const designContext = designSpecs
+    ? `
+DESIGN SPECIFICATIONS:
+Strictly follow these design guidelines for all UI components:
+${designSpecs}
+`
+    : "";
+
   return `You are an expert Next.js Frontend Engineer. 
 Your Product Manager has provided a strict architectural plan. 
+${designContext}
 Write the complete, runnable code for the exact files requested in the plan. 
 Output only the raw code. Do not hallucinate new features or routes outside the provided plan.
 
@@ -78,11 +88,18 @@ COMPLETE IMPLEMENTATION REQUIREMENTS:
 - Create complete component lifecycle, not just static UI
 - Include proper TypeScript interfaces for all data structures
 
+ERROR FIXING EXPERTISE:
+If you are fixing errors, follow these patterns:
+- "Type 'string' is not assignable to type...": check enum values or union types.
+- "Property 'x' does not exist on type...": add the property to the interface or check for typos.
+- "Module not found": check import paths, especially @/ alias vs relative paths.
+- "Client component...": add 'use client' directive if using hooks/state.
+
 SPECIFIC REQUIREMENTS FOR THIS FILE (${filePath}):
 ${requirements}`;
 }
 
-export function getEngineerUserPrompt(
+export function getFrontendEngineerUserPrompt(
   featureScope: string,
   implementationInstructions: string,
   filePath: string,

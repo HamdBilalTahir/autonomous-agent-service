@@ -2,6 +2,7 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { AgentState } from "../state";
 import { PM_SYSTEM_PROMPT, getPMUserPrompt } from "../prompts/pmPrompts";
 import { ExecutionPlanSchema } from "../schema";
+import { createTokenUsageCallback } from "../metrics-utils";
 
 /**
  * The Product Manager (PM) Agent node.
@@ -11,6 +12,7 @@ import { ExecutionPlanSchema } from "../schema";
  * 3. Output a strict execution plan.
  */
 export async function pmNode(state: typeof AgentState.State) {
+  const startTime = Date.now();
   const { ticketSummary, ticketDescription, codebaseTree } = state;
 
   console.log(
@@ -58,11 +60,19 @@ export async function pmNode(state: typeof AgentState.State) {
     JSON.stringify({ systemPrompt, userPrompt }, null, 2),
   );
 
+  let tokenUsage = { prompt: 0, completion: 0, total: 0 };
+  const TokenHandler = createTokenUsageCallback(tokenUsage);
+
   // Generate the execution plan
-  const result = await structuredModel.invoke([
-    ["system", systemPrompt],
-    ["user", userPrompt],
-  ]);
+  const result = await structuredModel.invoke(
+    [
+      ["system", systemPrompt],
+      ["user", userPrompt],
+    ],
+    {
+      callbacks: [new TokenHandler()],
+    },
+  );
 
   console.log("✅ [PM Node] Execution Plan Generated:");
   console.log(`   Scope: ${result.featureScope}`);
@@ -79,8 +89,19 @@ export async function pmNode(state: typeof AgentState.State) {
     `   Instructions (preview): ${result.implementationInstructions.substring(0, 200)}...`,
   );
 
+  const duration = Date.now() - startTime;
+  console.log(`⏱️ [PM Node] Completed in ${duration}ms`);
+
   // Return the updated state
   return {
     executionPlan: result,
+    metrics: {
+      nodeExecutionTimes: {
+        pmNode: duration,
+      },
+      nodeTokenUsage: {
+        pmNode: tokenUsage,
+      },
+    },
   };
 }

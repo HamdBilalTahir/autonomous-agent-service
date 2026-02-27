@@ -1,9 +1,10 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { AgentState } from "../state";
 import {
-  getEngineerSystemPrompt,
-  getEngineerUserPrompt,
-} from "../prompts/engineerPrompts";
+  getFrontendEngineerSystemPrompt,
+  getFrontendEngineerUserPrompt,
+} from "../prompts/frontendEngineerPrompts";
+import { extractTokenUsage } from "../metrics-utils";
 
 /**
  * The Frontend Engineer Agent node.
@@ -13,10 +14,12 @@ import {
  * 3. Output the generated code objects.
  */
 export async function frontendEngineerNode(state: typeof AgentState.State) {
+  const startTime = Date.now();
   const {
     executionPlan,
     projectContext,
     architectureProfile,
+    designSpecifications,
     validationErrors,
     needsRevision,
   } = state;
@@ -57,23 +60,48 @@ export async function frontendEngineerNode(state: typeof AgentState.State) {
 - Fonts: ${architectureProfile.fonts.join(", ")}`
     : projectContext;
 
+  const designSpecsString = designSpecifications
+    ? JSON.stringify(designSpecifications, null, 2)
+    : undefined;
+
+  let totalTokenUsage = { prompt: 0, completion: 0, total: 0 };
+
   for (const filePath of uniqueFiles) {
     console.log(`Engineer Agent: Generating code for ${filePath}...`);
 
-    const systemPrompt = getEngineerSystemPrompt(filePath, contextString);
+    const systemPrompt = getFrontendEngineerSystemPrompt(
+      filePath,
+      contextString,
+      designSpecsString,
+    );
 
-    let userPrompt = getEngineerUserPrompt(
+    let userPrompt = getFrontendEngineerUserPrompt(
       executionPlan.featureScope,
       executionPlan.implementationInstructions,
       filePath,
     );
 
-    if (needsRevision && validationErrors && validationErrors.length > 0) {
+    // Filter errors relevant to this file
+    const relevantErrors =
+      validationErrors?.filter((err) => err.includes(filePath)) || [];
+
+    // If global errors exist but none specific to this file, we might still want to pass them
+    // just in case, but usually path-specific is better.
+    // If no path match, maybe it's a general error? Let's pass all if relevantErrors is empty but validationErrors is not?
+    // Actually, let's stick to relevantErrors if possible, otherwise pass all if it seems generic.
+    const errorsToPass =
+      relevantErrors.length > 0
+        ? relevantErrors
+        : validationErrors?.filter((e) => !e.includes(":")) || [];
+
+    if (needsRevision && errorsToPass.length > 0) {
       userPrompt += `
       
 VALIDATION FAILED - PLEASE FIX THESE ISSUES:
 The previous code generation had the following errors. You must fix them in this new version:
-${validationErrors.map((e) => `- ${e}`).join("\n")}
+${errorsToPass.map((e) => `- ${e}`).join("\n")}
+
+IMPORTANT: You MUST change the code to fix these errors. Do not output the exact same code again.
 `;
     }
 
@@ -81,6 +109,11 @@ ${validationErrors.map((e) => `- ${e}`).join("\n")}
       ["system", systemPrompt],
       ["user", userPrompt],
     ]);
+
+    const usage = extractTokenUsage(result);
+    totalTokenUsage.prompt += usage.prompt;
+    totalTokenUsage.completion += usage.completion;
+    totalTokenUsage.total += usage.total;
 
     let content = result.content.toString();
 
@@ -98,7 +131,20 @@ ${validationErrors.map((e) => `- ${e}`).join("\n")}
     });
   }
 
+  const duration = Date.now() - startTime;
+  console.log(`⏱️ [Engineer Node] Completed in ${duration}ms`);
+
   return {
     generatedCode,
+    metrics: {
+      nodeExecutionTimes: {
+        frontendEngineerNode: duration,
+      },
+      nodeTokenUsage: {
+        frontendEngineerNode: totalTokenUsage,
+      },
+      totalFilesGenerated: executionPlan.newFilesToCreate?.length || 0,
+      totalFilesModified: executionPlan.filesToModify?.length || 0,
+    },
   };
 }

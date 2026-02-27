@@ -1,4 +1,5 @@
 import { Octokit } from "@octokit/rest";
+import { withRetry } from "./utils/retry";
 
 export class GitHubService {
   private octokit: Octokit;
@@ -10,12 +11,14 @@ export class GitHubService {
   }
 
   async getIssue(owner: string, repo: string, issueNumber: number) {
-    const { data } = await this.octokit.issues.get({
-      owner,
-      repo,
-      issue_number: issueNumber,
+    return withRetry(async () => {
+      const { data } = await this.octokit.issues.get({
+        owner,
+        repo,
+        issue_number: issueNumber,
+      });
+      return data;
     });
-    return data;
   }
 
   async createComment(
@@ -24,11 +27,13 @@ export class GitHubService {
     issueNumber: number,
     body: string,
   ) {
-    await this.octokit.issues.createComment({
-      owner,
-      repo,
-      issue_number: issueNumber,
-      body,
+    await withRetry(async () => {
+      await this.octokit.issues.createComment({
+        owner,
+        repo,
+        issue_number: issueNumber,
+        body,
+      });
     });
   }
 
@@ -41,30 +46,53 @@ export class GitHubService {
     body: string,
   ) {
     console.log(`[GitHub] Creating PR: ${title} (${head} -> ${base})`);
-    try {
-      const { data } = await this.octokit.pulls.create({
-        owner,
-        repo,
-        title,
-        head,
-        base,
-        body,
-      });
-      console.log(`[GitHub] PR Created: ${data.html_url}`);
-      return data;
-    } catch (error) {
-      console.error("[GitHub] Failed to create PR:", error);
-      throw error;
-    }
+    return withRetry(async () => {
+      try {
+        const { data } = await this.octokit.pulls.create({
+          owner,
+          repo,
+          title,
+          head,
+          base,
+          body,
+        });
+        console.log(`[GitHub] PR Created: ${data.html_url}`);
+        return data;
+      } catch (error) {
+        console.error("[GitHub] Failed to create PR:", error);
+        throw error;
+      }
+    });
   }
 
   async getReference(owner: string, repo: string, ref: string) {
-    const { data } = await this.octokit.git.getRef({
-      owner,
-      repo,
-      ref, // e.g. 'heads/main'
+    return withRetry(async () => {
+      const { data } = await this.octokit.git.getRef({
+        owner,
+        repo,
+        ref, // e.g. 'heads/main'
+      });
+      return data;
     });
-    return data;
+  }
+
+  async checkBranchExists(
+    owner: string,
+    repo: string,
+    branchName: string,
+  ): Promise<boolean> {
+    try {
+      await withRetry(async () => {
+        await this.octokit.git.getRef({
+          owner,
+          repo,
+          ref: `heads/${branchName}`,
+        });
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   async createBranch(
@@ -74,21 +102,23 @@ export class GitHubService {
     fromBranch: string = "main",
   ) {
     try {
-      // Get the sha of the fromBranch
-      const ref = await this.getReference(owner, repo, `heads/${fromBranch}`);
-      const sha = ref.object.sha;
+      await withRetry(async () => {
+        // Get the sha of the fromBranch
+        const ref = await this.getReference(owner, repo, `heads/${fromBranch}`);
+        const sha = ref.object.sha;
 
-      // Create the new branch
-      console.log(
-        `[GitHub] Creating branch ${branchName} from ${fromBranch}...`,
-      );
-      await this.octokit.git.createRef({
-        owner,
-        repo,
-        ref: `refs/heads/${branchName}`,
-        sha,
+        // Create the new branch
+        console.log(
+          `[GitHub] Creating branch ${branchName} from ${fromBranch}...`,
+        );
+        await this.octokit.git.createRef({
+          owner,
+          repo,
+          ref: `refs/heads/${branchName}`,
+          sha,
+        });
+        console.log(`[GitHub] Created branch ${branchName}`);
       });
-      console.log(`[GitHub] Created branch ${branchName}`);
     } catch (error: any) {
       if (error.status === 422) {
         console.log(`Branch ${branchName} likely already exists.`);
@@ -96,6 +126,75 @@ export class GitHubService {
       }
       throw error;
     }
+  }
+
+  async deleteBranch(owner: string, repo: string, branchName: string) {
+    try {
+      console.log(`[GitHub] Deleting branch ${branchName}...`);
+      await withRetry(async () => {
+        await this.octokit.git.deleteRef({
+          owner,
+          repo,
+          ref: `heads/${branchName}`,
+        });
+      });
+      console.log(`[GitHub] Deleted branch ${branchName}`);
+    } catch (error: any) {
+      console.warn(
+        `[GitHub] Failed to delete branch ${branchName}:`,
+        error.message,
+      );
+      // Don't throw, as this is a cleanup operation
+    }
+  }
+
+  async generateBranchName(
+    owner: string,
+    repo: string,
+    ticketId: string,
+    summary: string,
+    type: string = "feature",
+    manualSlug?: string,
+  ): Promise<string> {
+    const sanitize = (str: string) =>
+      str
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)+/g, "");
+
+    let slug = "";
+    if (manualSlug) {
+      slug = manualSlug;
+    } else {
+      // Shorten slug to first 2 words for brevity if no manual slug provided
+      slug = sanitize(summary).split("-").slice(0, 2).join("-");
+    }
+
+    const typeMap: Record<string, string> = {
+      feature: "feature",
+      bug: "bugfix",
+      chore: "chore",
+      styling: "style",
+      content: "docs",
+    };
+    const prefix = typeMap[type.toLowerCase()] || "feature";
+    const baseName = `${prefix}/${ticketId.toLowerCase()}-${slug}`;
+
+    // 1. Check feature/{ticketId}-{title}
+    if (!(await this.checkBranchExists(owner, repo, baseName))) {
+      return baseName.substring(0, 250); // Git ref limit compliance
+    }
+
+    // 2. Check feature/{ticketId}-{title}-{timestamp}
+    const timestamp = Date.now();
+    const timestampName = `${baseName}-${timestamp}`.substring(0, 250);
+    if (!(await this.checkBranchExists(owner, repo, timestampName))) {
+      return timestampName;
+    }
+
+    // 3. Fallback: feature/{ticketId}-{hash}
+    const hash = Math.random().toString(36).substring(2, 8);
+    return `feature/${ticketId.toLowerCase()}-${hash}`;
   }
 
   async getFileContent(
@@ -141,88 +240,94 @@ export class GitHubService {
     message: string,
     branch: string,
   ) {
-    // Check if file exists to get sha (for update)
-    let sha: string | undefined;
-    try {
+    await withRetry(async () => {
+      // Check if file exists to get sha (for update)
+      let sha: string | undefined;
+      try {
+        const { data } = await this.octokit.repos.getContent({
+          owner,
+          repo,
+          path,
+          ref: branch,
+        });
+        if (!Array.isArray(data) && "sha" in data) {
+          sha = data.sha;
+        }
+      } catch (e) {
+        // File doesn't exist, which is fine for creation
+      }
+
+      console.log(`[GitHub] Pushing file ${path} to branch ${branch}...`);
+      try {
+        await this.octokit.repos.createOrUpdateFileContents({
+          owner,
+          repo,
+          path,
+          message,
+          content: Buffer.from(content).toString("base64"),
+          branch,
+          sha,
+        });
+        console.log(`[GitHub] Successfully pushed ${path}`);
+      } catch (error) {
+        console.error(`[GitHub] Failed to push ${path}:`, error);
+        throw error;
+      }
+    });
+  }
+
+  async listFiles(owner: string, repo: string, path: string = "") {
+    return withRetry(async () => {
+      // This is a simplified list, might need recursive tree for full codebase
       const { data } = await this.octokit.repos.getContent({
         owner,
         repo,
         path,
-        ref: branch,
       });
-      if (!Array.isArray(data) && "sha" in data) {
-        sha = data.sha;
+
+      if (Array.isArray(data)) {
+        return data.map((item) => ({
+          name: item.name,
+          path: item.path,
+          type: item.type,
+        }));
       }
-    } catch (e) {
-      // File doesn't exist, which is fine for creation
-    }
-
-    console.log(`[GitHub] Pushing file ${path} to branch ${branch}...`);
-    try {
-      await this.octokit.repos.createOrUpdateFileContents({
-        owner,
-        repo,
-        path,
-        message,
-        content: Buffer.from(content).toString("base64"),
-        branch,
-        sha,
-      });
-      console.log(`[GitHub] Successfully pushed ${path}`);
-    } catch (error) {
-      console.error(`[GitHub] Failed to push ${path}:`, error);
-      throw error;
-    }
-  }
-
-  async listFiles(owner: string, repo: string, path: string = "") {
-    // This is a simplified list, might need recursive tree for full codebase
-    const { data } = await this.octokit.repos.getContent({
-      owner,
-      repo,
-      path,
+      return [];
     });
-
-    if (Array.isArray(data)) {
-      return data.map((item) => ({
-        name: item.name,
-        path: item.path,
-        type: item.type,
-      }));
-    }
-    return [];
   }
 
   async getRepoStructure(owner: string, repo: string, branch: string = "main") {
     try {
-      // Get the sha of the branch
-      const { data: refData } = await this.octokit.git.getRef({
-        owner,
-        repo,
-        ref: `heads/${branch}`,
-      });
-      const sha = refData.object.sha;
+      return await withRetry(async () => {
+        // Get the sha of the branch
+        const { data: refData } = await this.octokit.git.getRef({
+          owner,
+          repo,
+          ref: `heads/${branch}`,
+        });
+        const sha = refData.object.sha;
 
-      // Get the tree recursively
-      const { data } = await this.octokit.git.getTree({
-        owner,
-        repo,
-        tree_sha: sha,
-        recursive: "true",
-      });
+        // Get the tree recursively
+        const { data } = await this.octokit.git.getTree({
+          owner,
+          repo,
+          tree_sha: sha,
+          recursive: "true",
+        });
 
-      // Filter out node_modules, .git, and other noise
-      // Return a list of file paths
-      return data.tree
-        .filter(
-          (item) =>
-            item.path &&
-            !item.path.startsWith("node_modules") &&
-            !item.path.startsWith(".git") &&
-            !item.path.startsWith("dist") &&
-            !item.path.startsWith(".next"),
-        )
-        .map((item) => item.path);
+        // Filter out node_modules, .git, and other noise
+        // Return a list of file paths
+        return data.tree
+          .filter(
+            (item) =>
+              item.path &&
+              !item.path.startsWith("node_modules") &&
+              !item.path.startsWith(".git") &&
+              !item.path.startsWith("dist") &&
+              !item.path.startsWith(".next"),
+          )
+          .map((item) => item.path);
+      });
     } catch (error: any) {
       console.error("Error fetching repo structure:", error);
       return [];
@@ -236,30 +341,47 @@ export class GitHubService {
     summary: string,
     generatedCode: { filePath: string; fileContent: string }[],
     executionPlan: { featureScope: string; implementationInstructions: string },
+    ticketType: string = "feature",
+    branchSlug?: string,
   ) {
-    // Create Branch
-    const slug = summary
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)+/g, "");
-    const branchName = `feature/${ticketId.toLowerCase()}-${slug}`;
+    let branchName: string | undefined;
 
-    await this.createBranch(owner, repo, branchName);
-
-    // Push Code
-    for (const file of generatedCode) {
-      await this.createOrUpdateFile(
+    try {
+      // Create Branch
+      branchName = await this.generateBranchName(
         owner,
         repo,
-        file.filePath,
-        file.fileContent,
-        `feat: ${file.filePath} (AI Generated)`,
-        branchName,
+        ticketId,
+        summary,
+        ticketType,
+        branchSlug,
       );
-    }
 
-    // Create PR
-    const prBody = `
+      await this.createBranch(owner, repo, branchName);
+
+      // Push Code
+      const commitMap: Record<string, string> = {
+        feature: "feat",
+        bug: "fix",
+        chore: "chore",
+        styling: "style",
+        content: "docs",
+      };
+      const commitPrefix = commitMap[ticketType.toLowerCase()] || "feat";
+
+      for (const file of generatedCode) {
+        await this.createOrUpdateFile(
+          owner,
+          repo,
+          file.filePath,
+          file.fileContent,
+          `${commitPrefix}: ${file.filePath} (AI Generated)`,
+          branchName,
+        );
+      }
+
+      // Create PR
+      const prBody = `
 ### Execution Plan
 ${executionPlan?.implementationInstructions || "Automated implementation"}
 
@@ -268,15 +390,25 @@ ${executionPlan?.featureScope || "N/A"}
 
 Auto-generated by LangGraph Agent.
 `;
-    const pr = await this.createPullRequest(
-      owner,
-      repo,
-      `${ticketId}: ${summary}`,
-      branchName,
-      "main",
-      prBody,
-    );
+      const pr = await this.createPullRequest(
+        owner,
+        repo,
+        `${ticketId}: ${summary}`,
+        branchName,
+        "main",
+        prBody,
+      );
 
-    return pr;
+      return pr;
+    } catch (error: any) {
+      console.error(
+        "[GitHub] Process failed, rolling back branch...",
+        error.message,
+      );
+      if (branchName) {
+        await this.deleteBranch(owner, repo, branchName);
+      }
+      throw error;
+    }
   }
 }

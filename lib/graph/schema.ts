@@ -58,3 +58,77 @@ export const ArchitectureProfileSchema = z.object({
 });
 
 export type ArchitectureProfile = z.infer<typeof ArchitectureProfileSchema>;
+
+export const DesignSpecificationsSchema = z.object({
+  colorSystem: z.object({
+    primary: z.string().describe("Primary brand color hex code"),
+    secondary: z.string().describe("Secondary brand color hex code"),
+    accent: z.string().describe("Accent/Highlight color hex code"),
+    neutral: z
+      .array(z.string())
+      .describe("Array of neutral shades from lightest to darkest"),
+    semantic: z.object({
+      success: z.string(),
+      warning: z.string(),
+      error: z.string(),
+      info: z.string(),
+    }),
+  }),
+  typography: z.object({
+    headings: z.array(
+      z.object({
+        level: z.string(),
+        fontSize: z.string(),
+        fontWeight: z.string(),
+        lineHeight: z.string(),
+      }),
+    ),
+    body: z.object({
+      fontSize: z.string(),
+      fontWeight: z.string(),
+      lineHeight: z.string(),
+    }),
+  }),
+  spacing: z.object({
+    scale: z.array(z.string()).describe("Spacing scale values (e.g., rems)"),
+    grid: z.string().describe("Grid base unit (e.g., 8px)"),
+  }),
+  animations: z.object({
+    durations: z.object({
+      fast: z.string(),
+      normal: z.string(),
+      slow: z.string(),
+    }),
+    easings: z.object({
+      easeOut: z.string(),
+      easeInOut: z.string(),
+    }),
+  }),
+  components: z.array(
+    z.object({
+      name: z.string(),
+      variants: z.array(z.string()),
+      states: z.array(z.string()),
+      interactions: z.array(z.string()),
+    }),
+  ),
+});
+
+export type DesignSpecifications = z.infer<typeof DesignSpecificationsSchema>;
+
+export const TicketClassificationSchema = z.object({
+  complexity: z
+    .enum(["Low", "Medium", "High"])
+    .describe("The estimated complexity of the task."),
+  type: z
+    .enum(["Feature", "Bug", "Chore", "Styling", "Content"])
+    .describe("The type of the ticket."),
+  reasoning: z.string().describe("Brief explanation for the classification."),
+  branchSlug: z
+    .string()
+    .describe(
+      "A concise, hyphenated slug summarizing the task in 2-4 words (e.g., 'add-login-page', 'fix-nav-zindex'). Do not include ticket ID or prefixes.",
+    ),
+});
+
+export type TicketClassification = z.infer<typeof TicketClassificationSchema>;
