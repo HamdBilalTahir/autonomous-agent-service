@@ -21,16 +21,6 @@ export const ExecutionPlanSchema = z.object({
     .describe(
       "Highly detailed, step-by-step technical instructions for the frontend engineer. Include the logic, required UI elements, and Tailwind structure. Do not write code. Format as a markdown list.",
     ),
-  storyPoints: z
-    .number()
-    .describe(
-      "Estimate the effort using Fibonacci sequence (1, 2, 3, 5, 8). 1 = simple text change, 3 = standard component, 5 = complex component with state/routing, 8 = massive refactor.",
-    ),
-  priority: z
-    .enum(["Highest", "High", "Medium", "Low", "Lowest"])
-    .describe(
-      "Assess the severity/priority of this ticket based on its description.",
-    ),
 });
 
 // Export the TypeScript type for use in our LangGraph State
@@ -129,6 +119,36 @@ export const TicketClassificationSchema = z.object({
     .describe(
       "A concise, hyphenated slug summarizing the task in 2-4 words (e.g., 'add-login-page', 'fix-nav-zindex'). Do not include ticket ID or prefixes.",
     ),
+  commitMessage: z
+    .string()
+    .describe(
+      "A Conventional Commit message summarizing the change (e.g., 'feat: add login page implementation'). Do not include the ticket ID.",
+    ),
+  priority: z
+    .enum(["Highest", "High", "Medium", "Low", "Lowest"])
+    .describe(
+      "Assess the severity/priority of this ticket based on its description.",
+    ),
+  storyPoints: z
+    .number()
+    .describe(
+      "Estimate the effort using Fibonacci sequence (1, 2, 3, 5, 8). 1 = simple text change, 3 = standard component, 5 = complex component with state/routing, 8 = massive refactor.",
+    ),
 });
 
 export type TicketClassification = z.infer<typeof TicketClassificationSchema>;
+
+export const ValidationSchema = z.object({
+  criticalErrors: z
+    .array(z.string())
+    .describe(
+      "Compilation-breaking errors. Format: '[CRITICAL] path/to/file.tsx:LineNumber - THE PROBLEM: {Error} THE CONTEXT: {Sibling/Interface} THE STRATEGY: {Pivot instruction}'",
+    ),
+  warnings: z
+    .array(z.string())
+    .describe(
+      "Style issues. Format: '[WARNING] path/to/file.tsx:LineNumber - THE PROBLEM: {Issue} THE CONTEXT: {Why it matters} THE STRATEGY: {Fix instruction}'",
+    ),
+});
+
+export type ValidationResult = z.infer<typeof ValidationSchema>;

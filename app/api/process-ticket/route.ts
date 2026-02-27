@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { graph } from "../../../lib/graph";
 import { JiraService } from "../../../lib/jira";
 import { GitHubService } from "../../../lib/github";
+import { getCached, setCached } from "../../../lib/cache";
 
 export const maxDuration = 300;
 
@@ -18,6 +19,17 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+
+    // Prevent duplicate processing
+    const isProcessing = await getCached(`processing:${ticketId}`);
+    if (isProcessing === "true") {
+      console.log(`[Process Ticket] Ignored ${ticketId}: Already processing`);
+      return NextResponse.json({
+        status: "ignored",
+        message: "Already processing this ticket",
+      });
+    }
+    await setCached(`processing:${ticketId}`, "true", 900);
 
     // Initialize Services
     const jira = new JiraService(
@@ -47,69 +59,20 @@ export async function POST(req: NextRequest) {
 
     // Invoke Graph
     console.log("[Process Ticket] Invoking LangGraph...");
-    const finalState = await graph.invoke({
-      ticketId,
-      ticketSummary: summary,
-      ticketDescription:
-        typeof description === "string"
-          ? description
-          : JSON.stringify(description),
-      codebaseTree,
-    });
+    const finalState = await graph.invoke(
+      {
+        ticketId,
+        ticketSummary: summary,
+        ticketDescription:
+          typeof description === "string"
+            ? description
+            : JSON.stringify(description),
+        codebaseTree,
+      },
+      { recursionLimit: 100 },
+    );
 
     const { executionPlan, generatedCode, metrics } = finalState;
-
-    // --- Performance Logging ---
-    const endTime = Date.now();
-    const totalDuration = (endTime - (metrics?.startTime || endTime)) / 1000;
-
-    let totalTokens = { prompt: 0, completion: 0, total: 0 };
-    Object.values(metrics?.nodeTokenUsage || {}).forEach((usage) => {
-      totalTokens.prompt += usage.prompt;
-      totalTokens.completion += usage.completion;
-      totalTokens.total += usage.total;
-    });
-
-    console.log(`\n📊 Workflow Performance Report`);
-    console.log(`--------------------------------`);
-    console.log(`Ticket: ${ticketId} (${summary})`);
-    console.log(`Total Duration: ${totalDuration.toFixed(2)}s`);
-    console.log(`--------------------------------`);
-    console.log(`⏱️ Execution Time:`);
-    Object.entries(metrics?.nodeExecutionTimes || {}).forEach(
-      ([node, duration]) => {
-        console.log(`  - ${node}: ${(duration / 1000).toFixed(2)}s`);
-      },
-    );
-    console.log(`\n🤖 AI Token Usage:`);
-    Object.entries(metrics?.nodeTokenUsage || {}).forEach(([node, usage]) => {
-      console.log(
-        `  - ${node}: ${usage.total.toLocaleString()} (In: ${usage.prompt.toLocaleString()}, Out: ${usage.completion.toLocaleString()})`,
-      );
-    });
-    console.log(`  ----------------`);
-    console.log(
-      `  TOTAL: ${totalTokens.total.toLocaleString()} (In: ${totalTokens.prompt.toLocaleString()}, Out: ${totalTokens.completion.toLocaleString()})`,
-    );
-    console.log(`\n📂 Output:`);
-    console.log(
-      `  - Files Generated: ${metrics?.totalFilesGenerated || generatedCode?.length || 0}`,
-    );
-    console.log(`  - Files Modified: ${metrics?.totalFilesModified || 0}`);
-    console.log(`  - Validation Retries: ${metrics?.validationRetries || 0}`);
-    console.log(`--------------------------------\n`);
-    // ---------------------------
-
-    if (!generatedCode || generatedCode.length === 0) {
-      await jira.addComment(
-        ticketId,
-        "AI Analysis completed but no code was generated.",
-      );
-      return NextResponse.json({
-        status: "processed",
-        message: "No code generated",
-      });
-    }
 
     const pr = await github.processChangesAndCreatePR(
       targetOwner,
@@ -120,10 +83,93 @@ export async function POST(req: NextRequest) {
       executionPlan || { featureScope: "", implementationInstructions: "" },
       finalState.ticketClassification?.type || "feature",
       finalState.ticketClassification?.branchSlug,
+      finalState.ticketClassification?.commitMessage,
     );
+
+    // Update Jira Estimates
+    // Priority and Story Points now come from Triage (TicketClassification), not PM (ExecutionPlan)
+    const { ticketClassification } = finalState;
+    if (
+      ticketClassification?.priority &&
+      ticketClassification?.storyPoints !== undefined
+    ) {
+      // Set cache to prevent loop when this update triggers a webhook
+      await setCached(`agent_update:${ticketId}`, "true", 60);
+
+      await jira.updateTicketMetadata(ticketId, {
+        priority: ticketClassification.priority,
+        storyPoints: ticketClassification.storyPoints,
+      });
+    }
 
     // Update Jira Status and Link PR
     await jira.linkPRAndTransitionTicket(ticketId, pr.html_url, "In Review");
+
+    // --- Performance Logging ---
+    const endTime = Date.now();
+    const totalDuration = (endTime - (metrics?.startTime || endTime)) / 1000;
+
+    console.log(`\n📊 Workflow Performance Report`);
+    console.log(`--------------------------------`);
+    console.log(`Ticket: ${ticketId} (${summary})`);
+    console.log(`Total Duration: ${totalDuration.toFixed(2)}s`);
+    console.log(`--------------------------------`);
+
+    const tableData = Object.entries(metrics?.nodeCallCounts || {}).map(
+      ([nodeName, count]) => {
+        let duration = 0;
+        let tokenUsage = { prompt: 0, completion: 0, total: 0 };
+
+        // Aggregate execution times and token usage for this node
+        // Check for exact match
+        if (metrics?.nodeExecutionTimes?.[nodeName]) {
+          duration += metrics.nodeExecutionTimes[nodeName];
+        }
+        if (metrics?.nodeTokenUsage?.[nodeName]) {
+          const usage = metrics.nodeTokenUsage[nodeName];
+          tokenUsage.prompt += usage.prompt;
+          tokenUsage.completion += usage.completion;
+          tokenUsage.total += usage.total;
+        }
+
+        // Check for suffixed entries (e.g., validationNode_attempt_1)
+        Object.keys(metrics?.nodeExecutionTimes || {}).forEach((key) => {
+          if (key.startsWith(`${nodeName}_`)) {
+            duration += metrics?.nodeExecutionTimes[key] || 0;
+          }
+        });
+        Object.keys(metrics?.nodeTokenUsage || {}).forEach((key) => {
+          if (key.startsWith(`${nodeName}_`)) {
+            const usage = metrics?.nodeTokenUsage[key];
+            if (usage) {
+              tokenUsage.prompt += usage.prompt;
+              tokenUsage.completion += usage.completion;
+              tokenUsage.total += usage.total;
+            }
+          }
+        });
+
+        return {
+          Node: nodeName,
+          Calls: count,
+          "Duration (s)": (duration / 1000).toFixed(2),
+          "Input Tokens": tokenUsage.prompt,
+          "Output Tokens": tokenUsage.completion,
+          "Total Tokens": tokenUsage.total,
+        };
+      },
+    );
+
+    console.table(tableData);
+
+    console.log(`\n📂 Output:`);
+    console.log(
+      `  - Files Generated: ${metrics?.totalFilesGenerated || generatedCode?.length || 0}`,
+    );
+    console.log(`  - Files Modified: ${metrics?.totalFilesModified || 0}`);
+    console.log(`  - Validation Retries: ${metrics?.validationRetries || 0}`);
+    console.log(`--------------------------------\n`);
+    // ---------------------------
 
     return NextResponse.json({
       success: true,
@@ -161,5 +207,10 @@ export async function POST(req: NextRequest) {
       { error: "Internal Server Error", details: error.message },
       { status: 500 },
     );
+  } finally {
+    if (ticketId) {
+      await setCached(`processing:${ticketId}`, "false", 1);
+      console.log(`[Process Ticket] Released processing lock for ${ticketId}`);
+    }
   }
 }

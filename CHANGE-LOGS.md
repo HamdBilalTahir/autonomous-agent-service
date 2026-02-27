@@ -6,6 +6,163 @@
 
 ---
 
+> ### Fix Retry Logic Persistence Across Rounds
+>
+> - **What changed:** Refactored `frontendEngineerNode` and `validationNode` to explicitly reset `retryCount` to 0 when a new round (phase) begins, and used safer null-coalescing operators (`??`) for state initialization.
+> - **Why:** The retry counter was sometimes persisting or appearing to increment across rounds due to logic flow issues, confusing the phase tracking (e.g., showing "Retry 1" immediately in a new round).
+> - **Files:**
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/graph/nodes/validationNode.ts`
+
+---
+
+### ✨ Features
+
+---
+
+> ### Unlimited Engineer/Validation Rounds with Per-Phase Retry Logic
+>
+> - **What changed:** Replaced the hard 3-attempt cap with an unlimited round model. One round = one Engineer→Validation cycle. Within a round, the engineer retries up to 3 times with targeted fixes (only faulty files). After 3 failed retries, a new round begins with a full file regeneration reset.
+> - **Why:** The previous model hard-stopped at 3 total attempts regardless of progress, leaving tickets unresolved. The new model continues until the code actually passes validation.
+> - **Files:**
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/graph/state.ts`
+>   - `lib/graph/index.ts`
+
+> ### Warning Leniency After Round 5
+>
+> - **What changed:** Added `WARNING_LENIENCY_ROUND = 5` to the Validation Agent. After 5 total rounds, warnings no longer trigger revision — only `criticalErrors` (compilation-breaking) block the workflow. Split `ValidationSchema` into separate `criticalErrors` and `warnings` arrays.
+> - **Why:** Prevent the workflow from looping indefinitely over minor style/quality issues that don't affect runtime correctness.
+> - **Files:**
+>   - `lib/graph/nodes/validationNode.ts`
+>   - `lib/graph/state.ts`
+
+> ### Engineer Error History & Clean File Context
+>
+> - **What changed:** Added `errorAttemptHistory` state field (accumulated across retries). On each retry, the engineer prompt now includes past failed attempts and a list of files already validated as correct (`cleanFiles`) that must not be broken. Engineer only regenerates files listed in validation errors — never touches passing files.
+> - **Why:** Prevent the engineer from repeating the same mistakes across retries and from inadvertently breaking already-validated files.
+> - **Files:**
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/graph/prompts/frontendEngineerPrompts.ts`
+>   - `lib/graph/state.ts`
+
+> ### LangGraph Recursion Limit Set to 100
+>
+> - **What changed:** Added `{ recursionLimit: 100 }` as a second argument to all `graph.invoke()` calls in both API routes.
+> - **Why:** LangGraph's default recursion limit is 25 steps, which is insufficient for a workflow with unlimited rounds. This prevents premature termination on complex tickets.
+> - **Files:**
+>   - `app/api/webhook/route.ts`
+>   - `app/api/process-ticket/route.ts`
+
+> ### Ticket-Scoped Log Context Across All Nodes
+>
+> - **What changed:** Updated all `console.log` / `console.warn` / `console.error` statements in every agent node to include a `[ticketId]` prefix (e.g., `[Validation Node][PROJ-123]`).
+> - **Why:** Concurrent processing of multiple tickets caused log lines from different tickets to interleave, making debugging impossible.
+> - **Files:**
+>   - `lib/graph/nodes/validationNode.ts`
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/graph/nodes/triageNode.ts`
+>   - `lib/graph/nodes/architectureNode.ts`
+>   - `lib/graph/nodes/pmNode.ts`
+>   - `lib/graph/nodes/designNode.ts`
+>   - `lib/graph/nodes/updateJiraMetadataNode.ts`
+
+> ### Self-Correcting Engineer & Context-Aware Validation
+>
+> - **What changed:** Implemented "Contextual Anchoring" and a "Pre-Flight Checklist" in Engineer prompts, injected the full execution plan to improve sibling-file awareness, enforced "REPAIR HINT" format in Validation prompts, implemented "Pivotal Correction" logic, updated AgentState to persist the full execution plan, added an "Import-Plan Guard", and enhanced the Post-Validation Feedback Loop with structured "Problem/Context/Strategy" reporting and a mandatory "Correction Plan" for retries.
+> - **Why:** To eliminate "Context Blindness" where code works in isolation but fails integration, and to prevent the Validation Agent from giving vague error reports.
+> - **Files:**
+>   - `lib/graph/prompts/frontendEngineerPrompts.ts`
+>   - `lib/graph/nodes/validationNode.ts`
+
+---
+
+### 🐛 Fixes
+
+---
+
+> ### Fix Round Logic for Retries
+>
+> - **What changed:** Updated `frontendEngineerNode` to increment `roundCount` only when starting a new phase (initial generation or full regeneration), rather than on every invocation.
+> - **Why:** To align "Round" with "Phase" semantics, ensuring that retry counts reset correctly at the start of a new round, addressing user confusion where retries appeared to increment across rounds.
+> - **Files:**
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+
+> ### Simplified Validation Logs
+>
+> - **What changed:** Removed "Validation Attempt" counter from Validation Node logs.
+> - **Why:** To reduce confusion, as "Round" and "Retry" counters provide sufficient context for the current execution phase.
+> - **Files:**
+>   - `lib/graph/nodes/validationNode.ts`
+
+> ### Fix Retry Count Not Resetting Between Phases
+>
+> - **What changed:** `retryCount` is now explicitly reset to `0` when a new phase begins (after 3 failed retries or a validation crash), and the state returned from the engineer node always carries the updated `retryCount`.
+> - **Why:** The retry counter was not resetting, causing the engineer to always see `retryCount >= 3` after the first phase, bypassing targeted-fix mode for all subsequent phases.
+> - **Files:**
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/graph/state.ts`
+
+> ### Move Jira Metadata Update Immediately After Triage
+>
+> - **What changed:** `updateJiraMetadataNode` now runs unconditionally right after `triageNode` (before routing). `routeTicket` then dispatches Low-complexity tickets to `frontendEngineerNode` directly, or to `pmNode → designNode → frontendEngineerNode` for others. Removed the previous parallel fan-in where both `designNode` and `updateJiraMetadataNode` fed into `frontendEngineerNode`.
+> - **Why:** The old graph had an implicit parallel join that could cause ordering issues. Moving the Jira update before routing ensures metadata is always synced, even for low-complexity tickets that skip PM/Design.
+> - **Files:**
+>   - `lib/graph/index.ts`
+
+> ### Rename `validationAttempts` → `validationCrashCount`
+>
+> - **What changed:** Renamed the state field from `validationAttempts` to `validationCrashCount` across all files. Updated annotations, descriptions, and all read/write sites.
+> - **Why:** The field only tracks API crash retries (not total validation calls) and legitimately resets to 0 on success. The old name implied it counted all attempts, which was confusing.
+> - **Files:**
+>   - `lib/graph/state.ts`
+>   - `lib/graph/nodes/validationNode.ts`
+>   - `lib/graph/index.ts`
+
+> ### Fix Metrics Accumulation — Switch Webhook to `graph.invoke()`
+>
+> - **What changed:** Replaced `graph.stream()` + manual `{ ...finalState, ...chunkData }` accumulation in `webhook/route.ts` with a single `graph.invoke()` call that returns the fully-reduced final state.
+> - **Why:** The shallow merge in the stream loop was overwriting `metrics` on every chunk, causing `nodeCallCounts` to always show `1` and `validationCrashCount` to appear as `0` regardless of actual execution. LangGraph's built-in reducers handle accumulation correctly when using `invoke()`.
+> - **Files:**
+>   - `app/api/webhook/route.ts`
+
+> ### Robust State Reducer for Ticket ID
+>
+> - **What changed:** Updated `lib/graph/state.ts` to use a custom reducer for `ticketId` that explicitly ignores `undefined` or `null` updates, preventing state data loss.
+> - **Why:** Fixed a critical bug where `ticketId` was being overwritten or lost during graph execution, causing downstream nodes (like `updateJiraMetadataNode`) to fail.
+> - **Files:**
+>   - `lib/graph/state.ts`
+
+> ### Webhook Self-Loop Prevention & Initialization Fix
+>
+> - **What changed:** Implemented a cache-based loop prevention mechanism using an in-memory fallback. The `updateJiraMetadataNode` flags internal updates with a short-lived cache key, which the webhook handler checks to distinguish between internal loops (blocked) and user-initiated API actions (allowed). Also fixed `ticketId` initialization in `app/api/webhook/route.ts`.
+> - **Why:** Prevented infinite loops caused by agent updates while correctly allowing initial ticket creation via API/curl using the same agent credentials. Fixed missing `ticketId` in webhook flows.
+> - **Files:**
+>   - `app/api/webhook/route.ts`
+>   - `lib/graph/nodes/updateJiraMetadataNode.ts`
+>   - `lib/cache.ts`
+
+> ### Triage & PM Responsibility Refactor
+>
+> - **What changed:** Moved Priority and Story Point estimation responsibility from the PM Agent to the Triage Agent. The Triage Agent now handles all classification and estimation (Priority, Story Points). The PM Agent focuses purely on detailed architectural planning (files, implementation instructions).
+> - **Why:** Streamlined the workflow by consolidating all ticket metadata estimation into the Triage phase, allowing the PM agent to focus exclusively on technical execution planning.
+> - **Files:**
+>   - `lib/graph/nodes/triageNode.ts`
+>   - `lib/graph/prompts/triagePrompts.ts`
+>   - `lib/graph/nodes/pmNode.ts`
+>   - `lib/graph/prompts/pmPrompts.ts`
+>   - `lib/graph/schema.ts`
+>   - `lib/graph/nodes/updateJiraMetadataNode.ts`
+>   - `app/api/webhook/route.ts`
+>   - `app/api/process-ticket/route.ts`
+
+> ### Fix missing ticket ID in graph state
+>
+> - **What changed:** Added reducers to `AgentState` annotations in `lib/graph/state.ts` to persist values across graph nodes.
+> - **Why:** The `ticketId` was being lost during graph execution, preventing the Jira metadata update node from running correctly.
+> - **Files:**
+>   - `lib/graph/state.ts`
+
 > ### Error Recovery & Rollback System
 >
 > - **What changed:** Implemented transaction-like rollback for GitHub/Jira operations and added retry logic with exponential backoff.
@@ -37,407 +194,20 @@
 >   - `lib/graph/schema.ts`
 >   - `lib/graph/prompts/triagePrompts.ts`
 
-### ✨ Features
+---
+
+### 🧹 Refactors
 
 ---
 
-> ### Agent Performance Monitoring
+> ### Validation Prompts Refactor
 >
-> - **What changed:** Implemented comprehensive metrics collection (execution time, token usage, validation retries) across all agent nodes and added a detailed performance report to the workflow logs.
-> - **Why:** To provide visibility into agent costs, latency bottlenecks, and reliability issues without needing external monitoring tools.
-> - **Files:**
->   - `lib/graph/state.ts`
->   - `lib/graph/metrics-utils.ts` (new)
->   - `lib/graph/nodes/*.ts`
->   - `app/api/process-ticket/route.ts`
-
----
-
-> ### Rename Engineer to Frontend Engineer
->
-> - **What changed:** Renamed `engineerPrompts.ts` to `frontendEngineerPrompts.ts` and updated all internal references from "Engineer" to "Frontend Engineer".
-> - **Why:** To clarify the role of the agent as specifically focused on frontend implementation.
-> - **Files:**
->   - `lib/graph/prompts/frontendEngineerPrompts.ts`
->   - `lib/graph/nodes/frontendEngineerNode.ts`
-
-> ### Workflow Optimization & Caching
->
-> - **What changed:** Implemented architecture profile caching using Redis (or fallback) and parallelized independent workflow steps (Design & Jira updates).
-> - **Why:** To significantly reduce execution time by avoiding redundant analysis and running non-blocking operations concurrently.
-> - **Files:**
->   - `lib/graph/nodes/architectureNode.ts`
->   - `lib/graph/index.ts`
->   - `lib/cache.ts`
->   - `package.json`
-
-> ### Smart Branch Naming & Conflict Resolution
->
-> - **What changed:** Implemented `generateBranchName` with a 3-tier fallback strategy (slug → timestamp → hash) and pre-creation existence checking.
-> - **Why:** To prevent PR failures caused by duplicate branch names and ensure clean, non-conflicting Git history.
-> - **Files:**
->   - `lib/github.ts`
-
-> ### Improved Validation Feedback Loop
->
-> - **What changed:** Enhanced the Validation Agent to provide structured, actionable TypeScript error fixes and implemented a retry limit (max 3) to prevent infinite loops.
-> - **Why:** To resolve persistent compilation errors more effectively and prevent the agent from getting stuck in cycles of ineffective fixes.
+> - **What changed:** Extracted validation system prompts to `lib/graph/prompts/validationPrompts.ts` and moved `ValidationSchema` to `lib/graph/schema.ts`.
+> - **Why:** To align with the project structure where prompts and schemas are separated from node logic, improving maintainability.
 > - **Files:**
 >   - `lib/graph/nodes/validationNode.ts`
->   - `lib/graph/state.ts`
->   - `lib/graph/nodes/frontendEngineerNode.ts`
->   - `lib/graph/prompts/engineerPrompts.ts`
-
-> ### World-Class UI/UX Design Agent
->
-> - **What changed:** Implemented a dedicated Design Agent node that generates comprehensive design specifications (color, typography, spacing, animations) before code generation.
-> - **Why:** To ensure generated components match the quality and sophistication of top-tier products like Linear and Stripe, enforcing consistent design patterns.
-> - **Files:**
->   - `lib/graph/nodes/designNode.ts`
->   - `lib/graph/prompts/designPrompts.ts`
+>   - `lib/graph/prompts/validationPrompts.ts`
 >   - `lib/graph/schema.ts`
->   - `lib/graph/state.ts`
->   - `lib/graph/index.ts`
->   - `lib/graph/nodes/frontendEngineerNode.ts`
->   - `lib/graph/prompts/engineerPrompts.ts`
-
-> ### Immediate Jira Metadata Updates
->
-> - **What changed:** Added a new `updateJiraMetadataNode` to the LangGraph workflow.
-> - **Why:** To update Jira priority and story points immediately after PM analysis, providing faster feedback to users.
-> - **Files:**
->   - `lib/graph/nodes/updateJiraMetadataNode.ts`
->   - `lib/graph/index.ts`
->   - `lib/graph/state.ts`
->   - `app/api/process-ticket/route.ts`
-
-> ### Architecture Understanding Agent
->
-> - **What changed:** Implemented a specialized Architecture Agent that scans the codebase to generate a structured `ArchitectureProfile` (Next.js version, Tailwind, component patterns, etc.) before any planning occurs.
-> - **Why:** Ensure all downstream agents (PM, Engineer, Validation) operate with a deep, accurate understanding of the project's architectural standards and configuration.
-> - **Files:**
->   - `lib/graph/nodes/architectureNode.ts`
->   - `lib/graph/schema.ts`
->   - `lib/graph/prompts/architecturePrompts.ts`
->   - `lib/graph/index.ts`
->   - `lib/graph/state.ts`
->   - `lib/graph/nodes/pmNode.ts`
->   - `lib/graph/nodes/frontendEngineerNode.ts`
->   - `lib/graph/nodes/validationNode.ts`
-
-> ### Code Validation Agent
->
-> - **What changed:** Implemented a new `validationNode` in the LangGraph workflow that reviews generated code for TypeScript errors, broken imports, and configuration compatibility.
-> - **Why:** Introduce a quality control step that automatically detects issues and routes the workflow back to the Engineer Agent for revision before finalizing the code.
-> - **Files:**
->   - `lib/graph/nodes/validationNode.ts`
->   - `lib/graph/index.ts`
->   - `lib/graph/state.ts`
->   - `lib/graph/nodes/frontendEngineerNode.ts`
-
-> ### Enhanced Engineering Implementation Requirements
->
-> - **What changed:** Added strict requirements for realistic data flow, state management, error handling, and component lifecycles to the Engineer Agent's prompt.
-> - **Why:** Ensure generated components are production-ready with proper loading states, error boundaries, and TypeScript interfaces, rather than just static UI shells.
-> - **Files:**
->   - `lib/graph/prompts/engineerPrompts.ts`
-
-> ### Context-Aware Engineer Prompts
->
-> - **What changed:** Updated `getEngineerSystemPrompt` to inject project context and strict compatibility rules into the Frontend Engineer Agent's instructions.
-> - **Why:** Ensure generated code adheres to existing project versions (Next.js, Tailwind), fonts, and conventions.
-> - **Files:**
->   - `lib/graph/prompts/engineerPrompts.ts`
->   - `lib/graph/nodes/frontendEngineerNode.ts`
->   - `lib/graph/state.ts`
-
-> ### Automated Project Context Analysis
->
-> - **What changed:** Implemented `analyzeProjectContext` helper and integrated it into the PM Agent node to automatically read `package.json`, `next.config.*`, `tailwind.config.*`, and `layout.tsx`.
-> - **Why:** Provide the PM Agent with real-time, accurate technical context about the project's configuration and dependencies.
-> - **Files:**
->   - `lib/project-context.ts`
->   - `lib/graph/nodes/pmNode.ts`
->   - `lib/graph/prompts/pmPrompts.ts`
-
-> ### PM Agent Context Awareness
->
-> - **What changed:** Updated `PM_SYSTEM_PROMPT` to mandate analysis of existing project configuration (Next.js, Tailwind, fonts, etc.) before planning.
-> - **Why:** Prevent architectural decisions that are incompatible with the existing project setup.
-> - **Files:**
->   - `lib/graph/prompts/pmPrompts.ts`
-
-> ### LangGraph State Definition
->
-> - **What changed:** Defined the shared `AgentState` interface and installed LangGraph dependencies to enable multi-agent orchestration.
-> - **Why:** Establish the shared memory structure required for the new Product Manager and Frontend Engineer agents to collaborate.
-> - **Files:**
->   - `lib/graph/state.ts`
->   - `package.json`
-
-> ### PM/Architect Agent Node
->
-> - **What changed:** Implemented the Product Manager agent node (`pmNode`) using Gemini and structured output (Zod) to generate execution plans.
-> - **Why:** Enable the "thinking" phase where the agent plans the architecture before writing code.
-> - **Files:**
->   - `lib/graph/nodes/pmNode.ts`
->   - `package.json`
-
-> ### Frontend Engineer Agent Node
->
-> - **What changed:** Created `frontendEngineerNode` to generate code based on execution plans and removed the monolithic `AutonomousAgent`.
-> - **Why:** Decouple code generation from ticket analysis and enable the multi-agent workflow.
-> - **Files:**
->   - `lib/graph/nodes/frontendEngineerNode.ts`
->   - `lib/agent.ts` (deleted)
-
-> ### Separated System Prompts
->
-> - **What changed:** Extracted system prompts and helper functions into `lib/graph/prompts/` directory.
-> - **Why:** Improve maintainability and separate prompt engineering from agent logic.
-> - **Files:**
->   - `lib/graph/prompts/pmPrompts.ts`
->   - `lib/graph/prompts/engineerPrompts.ts`
->   - `lib/graph/nodes/pmNode.ts`
->   - `lib/graph/nodes/frontendEngineerNode.ts`
-
-> ### Graph Orchestration & Workflow Execution
->
-> - **What changed:** Orchestrated the PM and Engineer nodes into a LangGraph pipeline and updated webhook/API routes to execute it.
-> - **Why:** Enable end-to-end autonomous workflow where Jira tickets trigger the multi-agent graph, resulting in PRs.
-> - **Files:**
->   - `lib/graph/index.ts`
->   - `app/api/webhook/route.ts`
->   - `app/api/process-ticket/route.ts`
-
-> ### Structured Output Validation
->
-> - **What changed:** Implemented strict Zod schema validation for the PM Agent's execution plan.
-> - **Why:** Ensure the PM Agent produces predictable, structured JSON output that guarantees compatibility with the Engineer Node.
-> - **Files:**
->   - `lib/graph/schema.ts`
->   - `lib/graph/state.ts`
->   - `lib/graph/nodes/pmNode.ts`
-
-> ### Comprehensive Observability
->
-> - **What changed:** Added structured logging to the webhook, graph execution stream, agent nodes, and service layers (GitHub/Jira).
-> - **Why:** Enable detailed debugging of the multi-agent workflow, tracking state transitions, AI prompts/responses, and external API interactions.
-> - **Files:**
->   - `app/api/webhook/route.ts`
->   - `lib/graph/nodes/pmNode.ts`
->   - `lib/graph/nodes/frontendEngineerNode.ts`
->   - `lib/github.ts`
->   - `lib/jira.ts`
-
-> ### Enhanced Service Layer Integration
->
-> - **What changed:** Centralized GitHub workflow and Jira transition logic into reusable service methods (`processChangesAndCreatePR`, `linkPRAndTransitionTicket`) and updated API routes to use them.
-> - **Why:** Promote code reuse, reduce duplication in route handlers, and ensure consistent behavior across different triggers (webhook vs manual).
-> - **Files:**
->   - `lib/github.ts`
->   - `lib/jira.ts`
->   - `app/api/webhook/route.ts`
->   - `app/api/process-ticket/route.ts`
-
-> ### Enhanced Output Logging
->
-> - **What changed:** Updated agent nodes to log concise summaries and previews of generated content (execution plans, code files) instead of full JSON dumps.
-> - **Why:** Improve readability of logs and provide immediate visibility into agent outputs without cluttering the console.
-> - **Files:**
->   - `lib/graph/nodes/pmNode.ts`
->   - `lib/graph/nodes/frontendEngineerNode.ts`
-
-> ### Refined Notification Formatting
->
-> - **What changed:** Updated Jira comments to use Atlassian Document Format for clickable links and refined the PM Agent schema to enforce markdown lists in execution plans.
-> - **Why:** Improve the usability of automated notifications by ensuring links are clickable and PR descriptions are properly formatted.
-> - **Files:**
->   - `lib/jira.ts`
->   - `lib/graph/schema.ts`
-
-> ### Agile Planning & Estimation
->
-> - **What changed:** Expanded the PM Agent's capabilities to estimate Story Points (Fibonacci) and Priority levels, enforcing these fields via Zod schema.
-> - **Why:** Enable the agent to act as a Scrum Master, providing valuable planning metrics alongside the technical architecture.
-> - **Files:**
->   - `lib/graph/schema.ts`
->   - `lib/graph/prompts/pmPrompts.ts`
->   - `lib/graph/nodes/pmNode.ts`
-
-> ### Jira Field Integration
->
-> - **What changed:** Implemented `updateTicketEstimates` in `JiraService` to push Priority and Story Points back to Jira tickets using custom fields.
-> - **Why:** Ensure that the AI's planning and estimation data is reflected in the project management tool for better tracking.
-> - **Files:**
->   - `lib/jira.ts`
->   - `app/api/webhook/route.ts`
->   - `app/api/process-ticket/route.ts`
-
-> ### Dynamic Jira Field Discovery
->
-> - **What changed:** Implemented "Fetch-and-Stash" logic in `JiraService` to dynamically discover the "Story point estimate" custom field ID at runtime.
-> - **Why:** Remove the need for hardcoded field IDs in environment variables, making the integration more robust across different Jira workspaces.
-> - **Files:**
->   - `lib/jira.ts`
-
-> ### Robust Jira Metadata Sync
->
-> - **What changed:** Refined `JiraService` to use a robust "Fetch-and-Stash" ID discovery, implemented strict Priority validation with default fallbacks, and created an atomic `updateTicketMetadata` method.
-> - **Why:** Prevent API failures due to invalid priority values or missing custom field IDs, ensuring reliable synchronization of AI estimates to Jira.
-> - **Files:**
->   - `lib/jira.ts`
->   - `app/api/webhook/route.ts`
->   - `app/api/process-ticket/route.ts`
-
-> ### Refined PM Agent Prompt
->
-> - **What changed:** Updated the PM Agent's system prompt to include specific Agile estimation rules (Priority values and Story Point Fibonacci sequence).
-> - **Why:** Ensure consistent and realistic estimation outputs from the AI, aligning with Jira's field requirements and Agile best practices.
-> - **Files:**
->   - `lib/graph/prompts/pmPrompts.ts`
-
-> ### Legacy Code Cleanup
->
-> - **What changed:** Removed unused files (`lib/prompts.ts`, `lib/ollama.ts`, `lib/gemini.ts`, `lib/types.ts`) and updated the health check endpoint.
-> - **Why:** Remove deprecated monolithic agent components and ensure the codebase only contains active LangGraph-based logic.
-> - **Files:**
->   - `app/api/test/route.ts`
->   - `lib/prompts.ts` (deleted)
->   - `lib/ollama.ts` (deleted)
->   - `lib/gemini.ts` (deleted)
->   - `lib/types.ts` (deleted)
-
-
-> ### Improved Branch Naming Convention
->
-> - **What changed:** Updated branch naming to use ticket title slug instead of timestamp (e.g., `feature/kuailabs-13-add-login` instead of `feature/kuailabs-13-123456789`).
-> - **Why:** Create more descriptive and readable branch names that are easier to identify and link to requirements.
-> - **Files:**
->   - `lib/agent.ts`
-
----
-
-### 🐛 Fixes
-
----
-
-> ### Allow creating new files without editing existing ones
->
-> - **What changed:** Updated validation logic to check if both `filesToChange` and `newFilesToCreate` are empty before throwing an error.
-> - **Why:** Allow the agent to process tickets that only require creating new files.
-> - **Files:**
->   - `lib/agent.ts`
-
-> ### Webhook Loop Prevention
->
-> - **What changed:** Implemented dynamic check for self-triggered webhooks by comparing the trigger user's Account ID with the agent's own Account ID fetched at runtime. Added exception for `jira:issue_created` events to allow processing of agent-created tickets.
-> - **Why:** Prevent infinite loops where the agent reacting to a ticket triggers another webhook event, while ensuring test/automation tickets are still processed.
-> - **Files:**
->   - `app/api/webhook/route.ts`
->   - `lib/agent.ts`
->   - `lib/jira.ts`
-
-> ### Enhanced New File Generation
->
-> - **What changed:** Updated `getCodeGenerationPrompt` to explicitly instruct the AI when creating new files, ensuring it outputs complete code with imports and dependencies.
-> - **Why:** Prevent partial code generation for new files and ensure the AI understands it's building from scratch.
-> - **Files:**
->   - `lib/prompts.ts`
-
-## 🗓️ **2026-02-26**
-
----
-
-### ✨ Features
-
----
-
-> ### Gemini AI Provider Support
->
-> - **What changed:** Implemented `GeminiService` with configurable model selection (e.g., `gemini-3.1-pro-preview`) and JSON mode for structured analysis.
-> - **Why:** Enable switching between Ollama and Gemini AI providers for potentially better performance and reliability.
-> - **Files:**
->   - `lib/gemini.ts`
->   - `lib/agent.ts`
->   - `.env.example`
-
-> ### Multi-File Analysis Logic
->
-> - **What changed:** Updated AI analysis prompt to better identify and structure complex features requiring multiple files (UI, hooks, API).
-> - **Why:** Improve the agent's ability to architect complete features like authentication systems or complex state management.
-> - **Files:**
->   - `lib/prompts.ts`
-
-> ### Enhanced Webhook Filtering
->
-> - **What changed:** Updated `shouldProcessTicket` to ignore tickets in "In Progress", "In Review", or "Done" states.
-> - **Why:** Prevent unnecessary processing of active or completed tickets and improve system efficiency.
-> - **Files:**
->   - `lib/agent.ts`
-
-> ### Production-Ready Code Generation
->
-> - **What changed:** Updated AI prompts to generate complete, working TypeScript/React code instead of requirements.
-> - **Why:** To enable the agent to produce directly committable implementations with proper imports and error handling.
-> - **Files:**
->   - `lib/prompts.ts`
->   - `lib/ollama.ts`
-
-> ### Improve Agent File Processing
->
-> - **What changed:** Updated `lib/agent.ts` to process both new and existing files, and improved prompt generation for code changes.
-> - **Why:** To enable the agent to create new files as suggested by the AI analysis and handle missing files gracefully.
-> - **Files:**
->   - `lib/agent.ts`
->   - `lib/ollama.ts`
-
-> ### Enhanced AI Ticket Analysis
->
-> - **What changed:** Updated `analyzeTicket` to use `AgentPrompts` for structured analysis with improved error handling and fallback mechanism.
-> - **Why:** Increase reliability of AI responses by parsing JSON more robustly and providing fallback logic for failures.
-> - **Files:**
->   - `lib/ollama.ts`
->   - `lib/prompts.ts`
-
----
-
-### 🐛 Fixes
-
----
-
-> ### Webhook Duplicate Processing Lock
->
-> - **What changed:** Implemented an in-memory lock system in `processTicket` to track and prevent concurrent processing of the same ticket ID.
-> - **Why:** Prevent race conditions and redundant operations when Jira sends duplicate webhook events.
-> - **Files:**
->   - `lib/agent.ts`
-
-> ### Webhook Loop Protection
->
-> - **What changed:** Added status check to `processTicket` to ignore tickets already "In Progress", "In Review", or "Done".
-> - **Why:** Prevent infinite processing loops and redundant operations on active or completed tickets.
-> - **Files:**
->   - `lib/agent.ts`
-
-> ### Corrected Ollama Model Selection
->
-> - **What changed:** Updated default and agent-configured Ollama model from "llama2" to "codegemma:2b".
-> - **Why:** Ensure the agent uses the correct code-specialized model available in the environment.
-> - **Files:**
->   - `lib/ollama.ts`
->   - `lib/agent.ts`
-
-> ### Migrated API to Next.js App Router Structure
->
-> - **What changed:** Moved API functions from `api/` to `app/api/` and removed `vercel.json`.
-> - **Why:** Align with standard Next.js App Router conventions and fix Vercel deployment issues caused by conflicting configuration.
-> - **Files:**
->   - `api/` (deleted)
->   - `app/api/process-ticket/route.ts` (created)
->   - `app/api/webhook/route.ts` (created)
->   - `app/api/test/route.ts` (created)
->   - `vercel.json` (deleted)
 
 ---
 

@@ -24,7 +24,7 @@ export async function designNode(state: typeof AgentState.State) {
   } = state;
 
   console.log(
-    "\n🎨 [Design Node] Starting design analysis for ticket:",
+    `\n🎨 [Design Node][${state.ticketId}] Starting design analysis for ticket:`,
     state.ticketSummary,
   );
 
@@ -73,7 +73,7 @@ ${executionPlan.implementationInstructions}
   );
 
   console.log(
-    "[Design Node] Sending Prompt to LLM:",
+    `[Design Node][${state.ticketId}] Sending Prompt to LLM:`,
     JSON.stringify({ userPrompt }, null, 2),
   );
 
@@ -91,13 +91,13 @@ ${executionPlan.implementationInstructions}
     },
   );
 
-  console.log("✅ [Design Node] Design Specifications Generated:");
+  console.log(`✅ [Design Node][${state.ticketId}] Design Specifications Generated:`);
   console.log(`   Primary Color: ${result.colorSystem.primary}`);
   console.log(`   Typography Headings: ${result.typography.headings.length}`);
   console.log(`   Components Defined: ${result.components.length}`);
 
   const duration = Date.now() - startTime;
-  console.log(`⏱️ [Design Node] Completed in ${duration}ms`);
+  console.log(`⏱️ [Design Node][${state.ticketId}] Completed in ${duration}ms`);
 
   // Return the updated state
   return {
@@ -108,6 +108,9 @@ ${executionPlan.implementationInstructions}
       },
       nodeTokenUsage: {
         designNode: tokenUsage,
+      },
+      nodeCallCounts: {
+        designNode: 1,
       },
     },
   };

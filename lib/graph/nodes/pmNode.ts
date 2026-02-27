@@ -16,7 +16,7 @@ export async function pmNode(state: typeof AgentState.State) {
   const { ticketSummary, ticketDescription, codebaseTree } = state;
 
   console.log(
-    "\n🧠 [PM Node] Starting analysis for ticket:",
+    `\n🧠 [PM Node] Starting analysis for ticket (ID: ${state.ticketId}):`,
     state.ticketSummary,
   );
 
@@ -56,7 +56,7 @@ export async function pmNode(state: typeof AgentState.State) {
   );
 
   console.log(
-    "[PM Node] Sending Prompt to LLM:",
+    `[PM Node][${state.ticketId}] Sending Prompt to LLM:`,
     JSON.stringify({ systemPrompt, userPrompt }, null, 2),
   );
 
@@ -74,11 +74,8 @@ export async function pmNode(state: typeof AgentState.State) {
     },
   );
 
-  console.log("✅ [PM Node] Execution Plan Generated:");
+  console.log(`✅ [PM Node][${state.ticketId}] Execution Plan Generated:`);
   console.log(`   Scope: ${result.featureScope}`);
-  console.log(
-    `   Story Points: ${result.storyPoints || "N/A"} | Priority: ${result.priority || "N/A"}`,
-  );
   console.log(
     `   Files to Create: ${result.newFilesToCreate?.join(", ") || "None"}`,
   );
@@ -90,17 +87,31 @@ export async function pmNode(state: typeof AgentState.State) {
   );
 
   const duration = Date.now() - startTime;
-  console.log(`⏱️ [PM Node] Completed in ${duration}ms`);
+  console.log(`⏱️ [PM Node][${state.ticketId}] Completed in ${duration}ms`);
+
+  // Generate the execution plan summary for state persistence (The "Map" for Engineer)
+  const planSummary = (result.newFilesToCreate || [])
+    .map((f) => `- NEW FILE: ${f}`)
+    .concat((result.filesToModify || []).map((f) => `- MODIFY: ${f}`))
+    .join("\n");
+
+  const implementationSummary = `STRATEGY: ${result.implementationInstructions}`;
+
+  const fullExecutionPlan = `${planSummary}\n\n${implementationSummary}`;
 
   // Return the updated state
   return {
     executionPlan: result,
+    fullExecutionPlan,
     metrics: {
       nodeExecutionTimes: {
         pmNode: duration,
       },
       nodeTokenUsage: {
         pmNode: tokenUsage,
+      },
+      nodeCallCounts: {
+        pmNode: 1,
       },
     },
   };

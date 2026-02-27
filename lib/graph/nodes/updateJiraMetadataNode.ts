@@ -1,5 +1,6 @@
 import { AgentState } from "../state";
 import { JiraService } from "../../jira";
+import { setCached } from "../../cache";
 
 /**
  * Updates the Jira ticket with priority and story points
@@ -7,36 +8,41 @@ import { JiraService } from "../../jira";
  */
 export async function updateJiraMetadataNode(state: typeof AgentState.State) {
   const startTime = Date.now();
-  const { ticketId, executionPlan } = state;
+  const { ticketId, ticketClassification } = state;
 
   if (!ticketId) {
     console.warn(
-      "[Update Jira Node] No ticket ID found in state. Skipping update.",
+      `[Update Jira Node][${ticketId}] No ticket ID found in state. Available keys: ${Object.keys(state).join(", ")}`,
     );
     return {};
   }
 
-  if (!executionPlan) {
+  if (!ticketClassification) {
     console.warn(
-      "[Update Jira Node] No execution plan found in state. Skipping update.",
+      `[Update Jira Node][${ticketId}] No classification found in state. Skipping update.`,
     );
     return {};
   }
 
-  const { priority, storyPoints } = executionPlan;
+  const { priority, storyPoints } = ticketClassification;
 
   if (!priority && storyPoints === undefined) {
     console.log(
-      "[Update Jira Node] No priority or story points to update. Skipping.",
+      `[Update Jira Node][${ticketId}] No priority or story points to update. Skipping.`,
     );
     return {};
   }
 
   console.log(
-    `[Update Jira Node] Updating ticket ${ticketId} with Priority: ${priority}, Story Points: ${storyPoints}`,
+    `[Update Jira Node][${ticketId}] Updating ticket ${ticketId} with Priority: ${priority}, Story Points: ${storyPoints}`,
   );
 
   try {
+    // Set a short-lived cache key to signal that this update is coming from the agent.
+    // The webhook handler will check this key to ignore the resulting "issue_updated" event.
+    // TTL: 60 seconds should be enough for the webhook to arrive.
+    await setCached(`agent_update:${ticketId}`, "true", 60);
+
     const jira = new JiraService(
       process.env.JIRA_BASE_URL || "",
       process.env.JIRA_EMAIL || "",
@@ -48,19 +54,22 @@ export async function updateJiraMetadataNode(state: typeof AgentState.State) {
       storyPoints,
     });
 
-    console.log("[Update Jira Node] Successfully updated Jira metadata.");
+    console.log(`[Update Jira Node][${ticketId}] Successfully updated Jira metadata.`);
   } catch (error) {
-    console.error("[Update Jira Node] Failed to update Jira metadata:", error);
+    console.error(`[Update Jira Node][${ticketId}] Failed to update Jira metadata:`, error);
     // We don't want to fail the whole workflow if Jira update fails, just log it.
   }
 
   const duration = Date.now() - startTime;
-  console.log(`⏱️ [Update Jira Node] Completed in ${duration}ms`);
+  console.log(`⏱️ [Update Jira Node][${ticketId}] Completed in ${duration}ms`);
 
   return {
     metrics: {
       nodeExecutionTimes: {
         updateJiraMetadataNode: duration,
+      },
+      nodeCallCounts: {
+        updateJiraMetadataNode: 1,
       },
     },
   };

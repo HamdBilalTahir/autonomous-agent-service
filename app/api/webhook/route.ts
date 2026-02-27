@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { graph } from "../../../lib/graph";
 import { JiraService } from "../../../lib/jira";
 import { GitHubService } from "../../../lib/github";
+import { getCached, setCached } from "../../../lib/cache";
 
 export const maxDuration = 300;
 
@@ -30,10 +31,52 @@ export async function POST(req: NextRequest) {
     }
 
     const ticketId = body.issue.key;
+
+    // Verify ticket still exists (handles deleted tickets)
+    try {
+      await jira.getTicket(ticketId);
+    } catch (error) {
+      console.log(`[Webhook] Ignored ${ticketId}: Ticket not found or deleted`);
+      return NextResponse.json({
+        status: "ignored",
+        message: "Ticket not found or deleted",
+      });
+    }
+
     const summary = body.issue.fields.summary;
     const description = body.issue.fields.description || "";
     const status = body.issue.fields.status.name;
     const labels = body.issue.fields.labels || [];
+
+    // Filter: Ignore if triggered by the agent itself ONLY IF we have flagged it as an internal update
+    const currentUser = await jira.getCurrentUser();
+    const isSelfTriggered =
+      currentUser && body.user && body.user.accountId === currentUser.accountId;
+
+    // Check if we are already processing this ticket
+    const isProcessing = await getCached(`processing:${ticketId}`);
+    if (isProcessing === "true") {
+      console.log(
+        `[Webhook] Ignored ${ticketId}: Already processing this ticket`,
+      );
+      return NextResponse.json({
+        status: "ignored",
+        message: "Already processing this ticket",
+      });
+    }
+
+    // Check if we recently performed an update on this ticket
+    const isAgentUpdate = await getCached(`agent_update:${ticketId}`);
+
+    if (isSelfTriggered && isAgentUpdate === "true") {
+      console.log(
+        `[Webhook] Ignored ${ticketId}: Triggered by agent itself (Loop Prevention)`,
+      );
+      return NextResponse.json({
+        status: "ignored",
+        message: "Triggered by agent itself (Loop Prevention)",
+      });
+    }
 
     // Filter: Only process if label 'ai-agent' is present
     if (!labels.includes("ai-agent")) {
@@ -56,79 +99,89 @@ export async function POST(req: NextRequest) {
     console.log(`[Webhook] Processing ticket ${ticketId}: ${summary}`);
     console.time("GraphExecution");
 
-    // Transition to In Progress
-    await jira.transitionTicket(ticketId, "In Progress");
+    // Set processing lock (15 minutes expiry to cover long executions)
+    await setCached(`processing:${ticketId}`, "true", 900);
 
-    // Fetch Codebase Tree
-    const structure = await github.getRepoStructure(targetOwner, targetRepo);
-    const codebaseTree = structure.join("\n");
+    // Mark as agent update BEFORE transitioning to avoid self-trigger loop
+    await setCached(`agent_update:${ticketId}`, "true", 900);
 
-    // Invoke Graph
-    console.log("[Webhook] Invoking LangGraph...");
-    let finalState: any = {};
-    const stream = await graph.stream({
-      ticketSummary: summary,
-      ticketDescription:
-        typeof description === "string"
-          ? description
-          : JSON.stringify(description),
-      codebaseTree,
-    });
+    try {
+      // Transition to In Progress
+      await jira.transitionTicket(ticketId, "In Progress");
+      const structure = await github.getRepoStructure(targetOwner, targetRepo);
+      const codebaseTree = structure.join("\n");
 
-    for await (const chunk of stream) {
-      const nodeName = Object.keys(chunk)[0];
-      const chunkData = (chunk as Record<string, any>)[nodeName];
-      console.log(`\n[Graph Transition] Finished Node: ${nodeName}`);
-      console.log(
-        `[Current State Snapshot]:`,
-        JSON.stringify(chunkData, null, 2),
+      // Invoke Graph
+      console.log("[Webhook] Invoking LangGraph...");
+      const finalState = await graph.invoke(
+        {
+          ticketId,
+          ticketSummary: summary,
+          ticketDescription:
+            typeof description === "string"
+              ? description
+              : JSON.stringify(description),
+          codebaseTree,
+        },
+        { recursionLimit: 100 },
       );
-      finalState = { ...finalState, ...chunkData };
-    }
-    console.timeEnd("GraphExecution");
+      console.timeEnd("GraphExecution");
 
-    const { executionPlan, generatedCode } = finalState;
-    console.log("[Webhook] Graph execution completed.");
+      const { executionPlan, generatedCode } = finalState;
+      console.log("[Webhook] Graph execution completed.");
 
-    if (!generatedCode || generatedCode.length === 0) {
-      console.log("[Webhook] No code generated.");
-      await jira.addComment(
+      if (!generatedCode || generatedCode.length === 0) {
+        console.log("[Webhook] No code generated.");
+        await jira.addComment(
+          ticketId,
+          "AI Analysis completed but no code was generated.",
+        );
+        return NextResponse.json({
+          status: "processed",
+          message: "No code generated",
+        });
+      }
+
+      const pr = await github.processChangesAndCreatePR(
+        targetOwner,
+        targetRepo,
         ticketId,
-        "AI Analysis completed but no code was generated.",
+        summary,
+        generatedCode,
+        executionPlan || { featureScope: "", implementationInstructions: "" },
       );
+
+      console.log(`[Webhook] PR created: ${pr.html_url}`);
+
+      // Update Jira Estimates
+      // Priority and Story Points now come from Triage (TicketClassification), not PM (ExecutionPlan)
+      const { ticketClassification } = finalState;
+      if (
+        ticketClassification?.priority &&
+        ticketClassification?.storyPoints !== undefined
+      ) {
+        // Refresh agent update flag before metadata update
+        await setCached(`agent_update:${ticketId}`, "true", 60);
+
+        await jira.updateTicketMetadata(ticketId, {
+          priority: ticketClassification.priority,
+          storyPoints: ticketClassification.storyPoints,
+        });
+      }
+
+      // Update Jira Status and Link PR
+      await jira.linkPRAndTransitionTicket(ticketId, pr.html_url, "In Review");
+
       return NextResponse.json({
-        status: "processed",
-        message: "No code generated",
+        status: "success",
+        ticketId,
+        prUrl: pr.html_url,
       });
+    } finally {
+      // Clear processing lock
+      await setCached(`processing:${ticketId}`, "false", 1);
+      console.log(`[Webhook] released processing lock for ${ticketId}`);
     }
-
-    const pr = await github.processChangesAndCreatePR(
-      targetOwner,
-      targetRepo,
-      ticketId,
-      summary,
-      generatedCode,
-      executionPlan || { featureScope: "", implementationInstructions: "" },
-    );
-
-    console.log(`[Webhook] PR created: ${pr.html_url}`);
-
-    // Update Jira Estimates
-    if (executionPlan?.priority && executionPlan?.storyPoints !== undefined) {
-      await jira.updateTicketMetadata(ticketId, {
-        priority: executionPlan.priority,
-        storyPoints: executionPlan.storyPoints,
-      });
-    }
-
-    // Update Jira Status and Link PR
-    await jira.linkPRAndTransitionTicket(ticketId, pr.html_url, "In Review");
-
-    return NextResponse.json({
-      status: "success",
-      ticketId,
-      prUrl: pr.html_url,
-    });
   } catch (error: any) {
     console.error("[Webhook] Error:", error);
     return NextResponse.json(

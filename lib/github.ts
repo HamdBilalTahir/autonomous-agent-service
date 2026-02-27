@@ -163,11 +163,11 @@ export class GitHubService {
         .replace(/(^-|-$)+/g, "");
 
     let slug = "";
-    if (manualSlug) {
+    if (manualSlug && manualSlug.length > 0) {
       slug = manualSlug;
     } else {
-      // Shorten slug to first 2 words for brevity if no manual slug provided
-      slug = sanitize(summary).split("-").slice(0, 2).join("-");
+      // Fallback: Generate meaningful slug from summary if manual slug is missing
+      slug = sanitize(summary).split("-").slice(0, 4).join("-");
     }
 
     const typeMap: Record<string, string> = {
@@ -343,6 +343,7 @@ export class GitHubService {
     executionPlan: { featureScope: string; implementationInstructions: string },
     ticketType: string = "feature",
     branchSlug?: string,
+    commitMessage?: string,
   ) {
     let branchName: string | undefined;
 
@@ -357,25 +358,24 @@ export class GitHubService {
         branchSlug,
       );
 
+      // Verify branch name format (feature/TICKET-slug)
+      console.log(`[GitHub] Generated branch name: ${branchName}`);
+
       await this.createBranch(owner, repo, branchName);
 
       // Push Code
-      const commitMap: Record<string, string> = {
-        feature: "feat",
-        bug: "fix",
-        chore: "chore",
-        styling: "style",
-        content: "docs",
-      };
-      const commitPrefix = commitMap[ticketType.toLowerCase()] || "feat";
-
       for (const file of generatedCode) {
+        // Use provided commit message or fall back to generated default
+        const message = commitMessage
+          ? `${commitMessage} (${file.filePath})`
+          : `${ticketType}: ${file.filePath} (AI Generated)`;
+
         await this.createOrUpdateFile(
           owner,
           repo,
           file.filePath,
           file.fileContent,
-          `${commitPrefix}: ${file.filePath} (AI Generated)`,
+          message,
           branchName,
         );
       }

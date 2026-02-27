@@ -12,7 +12,7 @@ import { createTokenUsageCallback } from "../metrics-utils";
 /**
  * The Triage Agent node.
  * Responsibilities:
- * 1. Analyze the ticket complexity and type.
+ * 1. Analyze the ticket complexity, type, and PRIORITY.
  * 2. If simple, generate a fast-track execution plan.
  * 3. Route the workflow accordingly.
  */
@@ -21,7 +21,7 @@ export async function triageNode(state: typeof AgentState.State) {
   const { ticketSummary, ticketDescription, codebaseTree } = state;
 
   console.log(
-    "\n🚦 [Triage Node] Assessing ticket complexity:",
+    `\n🚦 [Triage Node] Assessing ticket complexity (ID: ${state.ticketId}):`,
     state.ticketSummary,
   );
 
@@ -55,6 +55,9 @@ export async function triageNode(state: typeof AgentState.State) {
   console.log(
     `   Classification: [${classification.complexity}] ${classification.type}`,
   );
+  console.log(
+    `   Priority: ${classification.priority} | Story Points: ${classification.storyPoints}`,
+  );
   console.log(`   Reasoning: ${classification.reasoning}`);
 
   let executionPlan = undefined;
@@ -84,6 +87,9 @@ export async function triageNode(state: typeof AgentState.State) {
       },
     );
 
+    // Ensure priority from classification is carried over to plan if not set by planner
+    // (Removed as priority is no longer part of ExecutionPlanSchema)
+
     console.log("   Generated Fast Execution Plan.");
   }
 
@@ -99,6 +105,9 @@ export async function triageNode(state: typeof AgentState.State) {
       },
       nodeTokenUsage: {
         triageNode: tokenUsage,
+      },
+      nodeCallCounts: {
+        triageNode: 1,
       },
     },
   };
