@@ -1,7 +1,28 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { AgentState } from "../state";
+import { AgentState, GeneratedFile } from "../state";
 import { ValidationSchema } from "../schema";
 import { getValidationSystemPrompt } from "../prompts/validationPrompts";
+import { extractTokenUsage } from "../metrics-utils";
+
+/**
+ * Extracts exported type/function/const signatures from a generated file.
+ * Used to give the LLM validator cross-file context without sending full
+ * file contents (which would double prompt size). Capped at 30 lines.
+ *
+ * This lets the validator catch cross-file mismatches in round 1 — e.g.
+ * "File A passes onClick: () => void but SiblingB expects onClick: (id: string) => void".
+ */
+function extractExportSignatures(filePath: string, content: string): string {
+  const exportLines = content
+    .split("\n")
+    .filter(
+      (l) =>
+        /^\s*export\s/.test(l) ||
+        /^\s*['"]use client['"]/.test(l) ||
+        /^\s*['"]use server['"]/.test(l),
+    );
+  return `[${filePath}]\n${exportLines.slice(0, 30).join("\n")}`;
+}
 
 const WARNING_LENIENCY_ROUND = 5;
 
@@ -62,8 +83,13 @@ export async function validationNode(state: typeof AgentState.State) {
     temperature: 0,
   });
 
+  // includeRaw: true returns { raw: BaseMessage, parsed: T }
+  // so we can call extractTokenUsage(result.raw) — the same approach the
+  // engineer node uses — instead of relying on callbacks, which don't fire
+  // reliably when the invoke is wrapped in Promise.race.
   const structuredModel = model.withStructuredOutput(ValidationSchema, {
     name: "validate_code",
+    includeRaw: true,
   });
 
   const systemPrompt = getValidationSystemPrompt(
@@ -74,25 +100,57 @@ export async function validationNode(state: typeof AgentState.State) {
 
   const tokenUsage = { prompt: 0, completion: 0, total: 0 };
   const VALIDATION_TIMEOUT_MS = 90_000;
+  const MAX_FILE_RETRIES = 3;
 
   // On a revision round, only re-validate the files the engineer just fixed.
   // Clean files haven't changed and don't need re-checking.
   const previouslyFailing = state.filesNeedingRevision;
-  const filesToValidate =
-    previouslyFailing && previouslyFailing.length > 0
+  let filesToValidate: GeneratedFile[] =
+    previouslyFailing && previouslyFailing.length > 0 && generatedCode
       ? generatedCode.filter((f) => previouslyFailing.includes(f.filePath))
-      : generatedCode;
+      : (generatedCode ?? []);
+
+  if (!filesToValidate) {
+    filesToValidate = [];
+  }
 
   console.log(
-    `   [Validation Node][${state.ticketId}] Validating ${filesToValidate.length}/${generatedCode.length} file(s) in parallel (timeout: ${VALIDATION_TIMEOUT_MS / 1000}s each)...`,
+    `   [Validation Node][${state.ticketId}] Validating ${filesToValidate.length} file(s) in parallel (timeout: ${VALIDATION_TIMEOUT_MS / 1000}s each)...`,
   );
 
   const invokeStart = Date.now();
 
-  try {
-    // Validate each file independently in parallel to avoid oversized payloads
-    const fileResults = await Promise.all(
-      filesToValidate.map(async (file) => {
+  // Pre-compute export signatures from ALL generated files.
+  // Each file validation receives the exports of its siblings so the LLM
+  // can catch cross-file type mismatches (wrong prop types, missing exports, etc.)
+  // in round 1 instead of discovering them in round 2.
+  const allSiblingSignatures = (generatedCode ?? []).map((f) =>
+    extractExportSignatures(f.filePath, f.fileContent),
+  );
+
+  // Store results for each file
+  const validationResults = new Map<
+    string,
+    {
+      filePath: string;
+      criticalErrors: string[];
+      warnings: string[];
+      needsWork: boolean;
+    }
+  >();
+
+  // Helper to process a batch of files
+  const processBatch = async (files: GeneratedFile[], attempt: number) => {
+    if (files.length === 0) return [];
+
+    if (attempt > 1) {
+      console.log(
+        `   🔄 [Validation Node][${state.ticketId}] Retrying ${files.length} file(s) (Attempt ${attempt}/${MAX_FILE_RETRIES})...`,
+      );
+    }
+
+    const promises = files.map(async (file) => {
+      try {
         console.log(
           `   [Validation Node][${state.ticketId}] Reviewing ${file.filePath} (${file.fileContent.length} chars)...`,
         );
@@ -102,40 +160,128 @@ export async function validationNode(state: typeof AgentState.State) {
             () =>
               reject(
                 new Error(
-                  `Validation timed out after ${VALIDATION_TIMEOUT_MS / 1000}s for ${file.filePath}`,
+                  `Validation timed out after ${VALIDATION_TIMEOUT_MS / 1000}s`,
                 ),
               ),
             VALIDATION_TIMEOUT_MS,
           ),
         );
 
+        // Build sibling context: exports of every other generated file.
+        // Gives the LLM cross-file visibility so it can catch prop-type mismatches
+        // between siblings without needing a second validation round.
+        const siblingContext = allSiblingSignatures
+          .filter((sig) => !sig.startsWith(`[${file.filePath}]`))
+          .join("\n\n");
+
+        const userContent = siblingContext
+          ? `SIBLING FILE EXPORTS (for cross-file type checking — do NOT flag these imports as missing):\n${siblingContext}\n\nFILE TO VALIDATE: ${file.filePath}\n${file.fileContent}`
+          : `FILE: ${file.filePath}\n\n${file.fileContent}`;
+
         const result = await Promise.race([
           structuredModel.invoke([
             ["system", systemPrompt],
-            ["user", `FILE: ${file.filePath}\n\n${file.fileContent}`],
+            ["user", userContent],
           ]),
           timeoutPromise,
         ]);
 
-        const fileCriticals = result.criticalErrors ?? [];
-        const fileWarnings = result.warnings ?? [];
+        // Accumulate token usage from the raw BaseMessage response.
+        // result.raw carries usage_metadata; result.parsed is the structured output.
+        const fileUsage = extractTokenUsage(result.raw);
+        tokenUsage.prompt += fileUsage.prompt;
+        tokenUsage.completion += fileUsage.completion;
+        tokenUsage.total += fileUsage.total;
+
+        const fileCriticals = result.parsed.criticalErrors ?? [];
+        const fileWarnings = result.parsed.warnings ?? [];
+
+        // Determine status emoji
+        let statusEmoji = "✅";
+        if (fileCriticals.length > 0) statusEmoji = "❌";
+        else if (fileWarnings.length > 0) statusEmoji = "⚠️";
 
         console.log(
-          `   [Validation Node][${state.ticketId}] ${file.filePath}: ${fileCriticals.length} critical, ${fileWarnings.length} warnings`,
+          `   ${statusEmoji} [Validation Node][${state.ticketId}] ${file.filePath}: ${fileCriticals.length} critical, ${fileWarnings.length} warnings`,
         );
 
         return {
-          filePath: file.filePath,
-          criticalErrors: fileCriticals,
-          warnings: fileWarnings,
-          needsWork: fileCriticals.length > 0 || (!isLenient && fileWarnings.length > 0),
+          status: "fulfilled" as const,
+          value: {
+            filePath: file.filePath,
+            criticalErrors: fileCriticals,
+            warnings: fileWarnings,
+            needsWork:
+              fileCriticals.length > 0 ||
+              (!isLenient && fileWarnings.length > 0),
+          },
         };
-      }),
-    );
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        console.error(
+          `   ❌ [Validation Node][${state.ticketId}] Failed to validate ${file.filePath}: ${errMsg}`,
+        );
+        return {
+          status: "rejected" as const,
+          reason: error,
+          filePath: file.filePath, // Custom property to track which file failed
+        };
+      }
+    });
+
+    const results = await Promise.allSettled(promises);
+
+    // Process results
+    const failedFiles: GeneratedFile[] = [];
+
+    results.forEach((result, index) => {
+      const file = files[index];
+
+      if (
+        result.status === "fulfilled" &&
+        result.value.status === "fulfilled"
+      ) {
+        validationResults.set(file.filePath, result.value.value);
+      } else {
+        // Validation failed (crashed/timed out)
+        failedFiles.push(file);
+      }
+    });
+
+    return failedFiles;
+  };
+
+  try {
+    let pendingFiles = [...filesToValidate];
+    let attempt = 1;
+
+    while (pendingFiles.length > 0 && attempt <= MAX_FILE_RETRIES) {
+      pendingFiles = await processBatch(pendingFiles, attempt);
+      attempt++;
+    }
+
+    // Handle files that completely failed validation after retries
+    if (pendingFiles.length > 0) {
+      console.error(
+        `   ❌ [Validation Node][${state.ticketId}] ${pendingFiles.length} file(s) failed validation after ${MAX_FILE_RETRIES} attempts.`,
+      );
+
+      pendingFiles.forEach((file) => {
+        validationResults.set(file.filePath, {
+          filePath: file.filePath,
+          criticalErrors: ["Validation process failed (timeout or crash)"],
+          warnings: [],
+          needsWork: true,
+        });
+      });
+    }
 
     console.log(
-      `   [Validation Node][${state.ticketId}] All files validated in ${Date.now() - invokeStart}ms.`,
+      `   [Validation Node][${state.ticketId}] All files processed in ${Date.now() - invokeStart}ms.`,
     );
+
+    // Convert map to array for final processing
+    const fileResults = Array.from(validationResults.values());
 
     // Merge per-file results
     const criticalErrors = fileResults.flatMap((r) => r.criticalErrors);
@@ -209,8 +355,8 @@ export async function validationNode(state: typeof AgentState.State) {
       console.log(
         `❌ [Validation Node][${state.ticketId}] Code needs revision (${criticalErrors.length} critical, ${warnings.length} warnings).`,
       );
-      criticalErrors.forEach((err) => console.log(`   [CRITICAL] ${err}`));
-      warnings.forEach((w) => console.log(`   [WARNING] ${w}`));
+      criticalErrors.forEach((err) => console.log(`   ❌ [CRITICAL] ${err}`));
+      warnings.forEach((w) => console.log(`   ⚠️ [WARNING] ${w}`));
     } else {
       // SUCCESS - Clear Surgical Context
       if (state.surgicalContext) {
@@ -225,7 +371,7 @@ export async function validationNode(state: typeof AgentState.State) {
         console.log(
           `⚠️ [Validation Node][${state.ticketId}] Warnings ignored — lenient mode (round ${currentRound} ≥ ${WARNING_LENIENCY_ROUND}).`,
         );
-        warnings.forEach((w) => console.log(`   [WARNING] ${w}`));
+        warnings.forEach((w) => console.log(`   ⚠️ [WARNING] ${w}`));
       }
       console.log(
         `✅ [Validation Node][${state.ticketId}] Code passed validation.`,
@@ -265,7 +411,8 @@ export async function validationNode(state: typeof AgentState.State) {
     };
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
-    const errType = error instanceof Error ? error.constructor.name : typeof error;
+    const errType =
+      error instanceof Error ? error.constructor.name : typeof error;
     const elapsed = Date.now() - invokeStart;
     console.error(
       `❌ [Validation Node][${state.ticketId}] CRASHED [${errType}] after ${elapsed}ms: ${errMsg}`,

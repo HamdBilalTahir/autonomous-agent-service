@@ -1,10 +1,128 @@
-## 🗓️ **2026-02-27**
+## 🗓️ **2026-02-28**
+
+---
+
+### 🐛 Fixes
+
+---
+
+> ### Fix Validation Node Reporting Zero Tokens
+>
+> - **What changed:** Switched `validationNode` from a callback-based token tracking approach (`createTokenUsageCallback`) to `withStructuredOutput(..., { includeRaw: true })` + `extractTokenUsage(result.raw)`. Also fixed `createTokenUsageCallback` in `metrics-utils.ts` to handle Gemini's `usage_metadata` token format (`input_tokens`, `output_tokens`, `total_tokens`) and added an explicit `handleChatModelEnd` hook alongside `handleLLMEnd`.
+> - **Why:** The callback system does not reliably fire when `structuredModel.invoke()` is wrapped in `Promise.race` (which all per-file validation calls are). Gemini's token usage also lives in `llmOutput.usage_metadata`, not in the OpenAI-style `llmOutput.tokenUsage` field the original callback checked. These two issues combined produced 0 input/output tokens for every validation round. Using `includeRaw: true` gives direct access to the raw `BaseMessage` — the same mechanism the engineer node already uses — bypassing the callback system entirely.
+> - **Files:**
+>   - `lib/graph/nodes/validationNode.ts`
+>   - `lib/graph/metrics-utils.ts`
 
 ---
 
 ### ✨ Features
 
 ---
+
+> ### Per-File Inline Validation with TypeScript Syntax Pre-Check
+>
+> - **What changed:** Added a new `lib/graph/ts-syntax-check.ts` utility that uses the TypeScript compiler API (`ts.createSourceFile`, `ts.createProgram`, `getSyntacticDiagnostics`) to catch structural parse errors (unclosed brackets, malformed generics, invalid JSX) synchronously — no API call required. Integrated it into `frontendEngineerNode` between the import guard and the inline LLM validation step so broken code is detected and fed back to the engineer before spending an LLM token on it.
+> - **Why:** LLM-generated code sometimes contains structural TypeScript errors (missing brackets, malformed generics) that are trivial for a compiler to detect but expensive to discover only after an LLM validation call. The zero-cost pre-check short-circuits that cycle.
+> - **Files:**
+>   - `lib/graph/ts-syntax-check.ts` (new)
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `package.json` (`typescript` moved to `dependencies` — required at runtime for the compiler API)
+
+> ### Cross-File Sibling Export Context in Validation
+>
+> - **What changed:** Before running per-file validation, `validationNode` now extracts export signatures (all `export …` lines, capped at 30, including `'use client'`/`'use server'` directives) from every generated file and injects them as a `SIBLING FILE EXPORTS` block into the user prompt of each file being validated.
+> - **Why:** The validator previously saw one file in isolation. When `dashboard/page.tsx` imports `ActivityChart` (generated in the same sprint), the validator flagged every sibling import as a missing dependency — producing false-positive criticals. With sibling context, the validator can verify prop types and export styles across files in round 1 instead of discovering mismatches in round 2.
+> - **Files:**
+>   - `lib/graph/nodes/validationNode.ts`
+
+---
+
+### 🧹 Refactors
+
+---
+
+> ### Surgical Coding & Strict Validation Prompt Overhaul
+>
+> - **What changed:** Replaced the flat safety rules in `frontendEngineerPrompts.ts` and `validationPrompts.ts` with structured audit sections. Engineer prompt now includes Zero-Trust Data Failsafes (mandatory `?.`, `??`, no `!` assertions), Import Standardization Protocol (correct default vs. named imports, `@/` aliases, `import type`), Component Resilience rules, and a 3-item Pre-Flight Checklist. Validation prompt now runs three named audits: AUDIT 1 — UNDEFINED SAFETY, AUDIT 2 — IMPORT/EXPORT INTEGRITY, AUDIT 3 — NEXT.JS & REACT LIFECYCLE, each with explicit CRITICAL/WARNING thresholds and REPAIR HINT requirements.
+> - **Why:** Runtime crashes like `slots.forEach is not a function` and import errors like `{ Card }` on a default-export component were passing validation. The structured audits give the LLM an explicit checklist to run against every file rather than relying on implicit understanding.
+> - **Files:**
+>   - `lib/graph/prompts/frontendEngineerPrompts.ts`
+>   - `lib/graph/prompts/validationPrompts.ts`
+
+---
+
+## 🗓️ **2026-02-27**
+
+---
+
+### 🔧 DevOps / Build
+
+---
+
+> ### Zero-Trust & Import Standardization Protocols
+>
+> - **What changed:** Implemented strict "Zero-Trust" coding standards and "Import Standardization" protocols. Enhanced the Import Guard to perform real-time file scanning, verifying that imported members actually exist in the target files (Default vs Named exports).
+> - **Why:** To eliminate runtime "undefined" crashes and build-time "module has no exported member" errors by enforcing defensive coding and ensuring import validity before compilation.
+> - **Files:**
+>   - `lib/graph/prompts/frontendEngineerPrompts.ts`
+>   - `lib/graph/import-guard.ts`
+
+---
+
+### ✨ Features
+
+---
+
+> ### Real-Time LLM Cost Estimation
+>
+> - **What changed:** Implemented granular cost calculation for Gemini 3.1 Pro (Context-Based Pricing: $2/1M input < 200k, $4/1M input > 200k) and Gemini 3 Flash ($0.50/1M input). Added "Est. LLM Cost" column to the monitoring table and a final "Total Estimated LLM Cost" summary log.
+> - **Why:** To provide immediate visibility into the financial impact of each agent execution, allowing for better budget tracking and model usage optimization.
+> - **Files:**
+>   - `lib/graph/metrics-utils.ts`
+>   - `app/api/process-ticket/route.ts`
+>   - `app/api/webhook/route.ts`
+
+---
+
+### 🐛 Fixes
+
+---
+
+> ### Gemini Schema Compatibility Fix
+>
+> - **What changed:** Refactored `ArchitectureProfileSchema` to use an array of objects for `uiLibrary` instead of a record map.
+> - **Why:** The Gemini API does not support JSON Schema `propertyNames` constraint generated by Zod records, causing 400 Bad Request errors during architecture analysis.
+> - **Files:**
+>   - `lib/graph/schema.ts`
+
+> ### Runtime Safety & Logic Verification
+>
+> - **What changed:** Enhanced Validation and Engineer prompts to explicitly check for runtime errors (unsafe array access, JSON parsing) and logic bugs (step index off-by-one).
+> - **Why:** To prevent runtime crashes (e.g., `slots.forEach is not a function`) and logic errors (e.g., "starts on 2nd question") from passing validation.
+> - **Files:**
+>   - `lib/graph/prompts/validationPrompts.ts`
+>   - `lib/graph/prompts/frontendEngineerPrompts.ts`
+>   - `lib/graph/prompts/emPrompts.ts`
+
+---
+
+### ✨ Features
+
+---
+
+> ### The UX Totality & Architectural Sync
+>
+> - **What changed:** Implemented comprehensive system integrity checks across Architecture, PM, EM, and Engineer nodes to enforce layout, navigation, and UI consistency.
+> - **Why:** To ensure seamless integration of new features ("Stitching") and prevent UX fragmentation or architectural drift.
+> - **Files:**
+>   - `lib/graph/schema.ts`
+>   - `lib/graph/prompts/architecturePrompts.ts`
+>   - `lib/graph/prompts/pmPrompts.ts`
+>   - `lib/graph/nodes/pmNode.ts`
+>   - `lib/graph/prompts/emPrompts.ts`
+>   - `lib/graph/prompts/frontendEngineerPrompts.ts`
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
 
 > ### Surgical Delta Context Masking
 >

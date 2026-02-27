@@ -3,6 +3,7 @@ import { graph } from "../../../lib/graph";
 import { JiraService } from "../../../lib/jira";
 import { GitHubService } from "../../../lib/github";
 import { getCached, setCached } from "../../../lib/cache";
+import { calculateLLMCost } from "../../../lib/graph/metrics-utils";
 
 export const maxDuration = 300;
 
@@ -87,6 +88,8 @@ export async function POST(req: NextRequest) {
     console.log(`Total Duration: ${totalDuration.toFixed(2)}s`);
     console.log(`--------------------------------`);
 
+    let totalCost = 0;
+
     const tableData = Object.entries(metrics?.nodeCallCounts || {}).map(
       ([nodeName, count]) => {
         let duration = 0;
@@ -121,6 +124,13 @@ export async function POST(req: NextRequest) {
           }
         });
 
+        const cost = calculateLLMCost(
+          nodeName,
+          tokenUsage.prompt,
+          tokenUsage.completion,
+        );
+        totalCost += cost;
+
         return {
           Node: nodeName,
           Calls: count,
@@ -128,11 +138,13 @@ export async function POST(req: NextRequest) {
           "Input Tokens": tokenUsage.prompt,
           "Output Tokens": tokenUsage.completion,
           "Total Tokens": tokenUsage.total,
+          "Est. Cost ($)": cost.toFixed(4),
         };
       },
     );
 
     console.table(tableData);
+    console.log(`Total Estimated LLM Cost: $${totalCost.toFixed(4)}`);
 
     console.log(`\n📂 Output:`);
     console.log(

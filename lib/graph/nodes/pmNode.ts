@@ -12,7 +12,7 @@ import { createTokenUsageCallback } from "../metrics-utils";
  */
 export async function pmNode(state: typeof AgentState.State) {
   const startTime = Date.now();
-  const { ticketSummary, ticketDescription } = state;
+  const { ticketSummary, ticketDescription, architectureProfile } = state;
 
   console.log(
     `\n🧠 [PM Node] Starting analysis for ticket (ID: ${state.ticketId}):`,
@@ -35,7 +35,11 @@ export async function pmNode(state: typeof AgentState.State) {
   const systemPrompt = PM_SYSTEM_PROMPT;
 
   // User prompt
-  const userPrompt = getPMUserPrompt(ticketSummary, ticketDescription);
+  const userPrompt = getPMUserPrompt(
+    ticketSummary,
+    ticketDescription,
+    architectureProfile,
+  );
 
   console.log(
     `[PM Node][${state.ticketId}] Sending Prompt to LLM:`,

@@ -104,6 +104,36 @@ export const ArchitectureProfileSchema = z.object({
   apiPatterns: z
     .array(z.string())
     .describe("API route patterns (e.g., app/api, routers/)."),
+  systemIntegrity: z
+    .object({
+      globalLayouts: z
+        .array(z.string())
+        .describe(
+          "Paths to detected layout wrappers (e.g., RootLayout, DashboardLayout).",
+        ),
+      navigationComponents: z
+        .array(z.string())
+        .describe("Paths to Sidebar, NavBar, or other navigation elements."),
+      activeRoutes: z
+        .array(z.string())
+        .describe("List of registered routes or pages found in the project."),
+      uiLibrary: z
+        .array(
+          z.object({
+            name: z.string().describe("Component name (e.g., 'Button')"),
+            path: z
+              .string()
+              .describe("File path (e.g., 'components/ui/button.tsx')"),
+          }),
+        )
+        .describe(
+          "List of UI components and their file paths. Example: [{ name: 'Button', path: 'components/ui/button.tsx' }, { name: 'Toast', path: 'components/ui/toast.tsx' }]",
+        ),
+    })
+    .optional()
+    .describe(
+      "Tracks critical UX/Architectural components for seamless integration.",
+    ),
 });
 
 export type ArchitectureProfile = z.infer<typeof ArchitectureProfileSchema>;

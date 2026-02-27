@@ -1,3 +1,5 @@
+import { ArchitectureProfile } from "../schema";
+
 /**
  * Helper to get file-specific requirements based on the file path.
  * Migrated from AgentPrompts.getFileRequirements.
@@ -39,6 +41,7 @@ export function getFrontendEngineerSystemPrompt(
   projectContext: string,
   designSpecs?: string,
   codebaseTree?: string,
+  architectureProfile?: ArchitectureProfile,
 ): string {
   const requirements = getFileRequirements(filePath);
 
@@ -57,10 +60,23 @@ ${codebaseTree}
 `
     : "";
 
+  const stitchingProtocol = architectureProfile?.systemIntegrity
+    ? `
+🧵 STITCHING PROTOCOL (Use these components):
+- **Layouts**: Wrap pages in \`${architectureProfile.systemIntegrity.globalLayouts[0] || "Layout"}\`
+- **Navigation**: Stitch links into \`${architectureProfile.systemIntegrity.navigationComponents.join("`, `")}\`
+- **UI Library**: Use these pre-existing components:
+${architectureProfile.systemIntegrity.uiLibrary
+  .map((comp) => `  - <${comp.name} /> from "${comp.path}"`)
+  .join("\n")}
+`
+    : "";
+
   return `You are an expert Next.js Frontend Engineer.
 Your Product Manager has provided a strict architectural plan.
 ${designContext}
 ${fileTreeContext}
+${stitchingProtocol}
 Write the complete, runnable code for the exact files requested in the plan.
 Output only the raw code. Do not hallucinate new features or routes outside the provided plan.
 
@@ -69,6 +85,7 @@ You must implement the UI exactly as specified in the technicalContract. Use the
 - Adhere exactly to the TypeScript interfaces and prop names defined in the plan.
 - Do not modify or "improve" the interfaces unless explicitly instructed.
 - Ensure all prop names match the contract character-for-character.
+- **Surgical Merge**: When modifying existing files, PRESERVE existing code structure. Only add the new import/route/component where needed. Do NOT rewrite the entire file unless necessary.
 
 CONTEXTUAL ANCHORING & SELF-CORRECTION:
 Before writing a single line of code, you must internally:
@@ -95,6 +112,38 @@ DO NOT:
 
 ZERO-FAILURE GENERATION FRAMEWORK:
 These are not suggestions — they are rules. Code that violates any of these will fail validation.
+
+━━━ ZERO-TRUST DATA FAILSAFES ━━━
+To prevent runtime crashes (e.g., "cannot read property of undefined"), you must assume all external data is potentially missing.
+- **Mandatory Optional Chaining**: Every property access on non-constant objects MUST use \`?.\` syntax (e.g., \`user?.profile?.name\`).
+- **Nullish Coalescing for UI**: All data rendered in JSX MUST provide a safe fallback using \`??\` or \`||\`:
+  - Strings: \`{data?.title ?? "Untitled"}\`
+  - Arrays: \`{(items ?? []).map(item => ...)}\` or \`{items?.map(item => ...)}\`
+  - Numbers: \`{count ?? 0}\`
+- **Destructuring Safety**: Always provide default values during destructuring.
+  - \`const { user = {}, settings = [] } = props ?? {};\`
+  - \`const { items = [] } = data ?? {};\`
+- **No Non-Null Assertions**: The \`!\` operator is STRICTLY PROHIBITED (e.g., \`user!.name\` is banned). If a value might be null, add a guard clause or use optional chaining.
+
+━━━ IMPORT STANDARDIZATION PROTOCOL ━━━
+Resolve import syntax mismatches ({} vs default) by following this strict protocol:
+- **Installed Packages**:
+  - **Named Imports ({})**: Mandatory for utility-heavy libraries (lucide-react, framer-motion, date-fns, clsx, zod).
+  - **Namespace Awareness**: If a package's export style is unclear, prefer \`import * as Name from 'package'\` over guessing default vs named.
+- **Local Components**:
+  - **Default Imports** (No Braces): All UI components and page/layout files use default exports.
+    - CORRECT: \`import Card from "@/components/ui/card"\`
+    - WRONG:   \`import { Card } from "@/components/ui/card"\`
+  - **Named Imports** (With Braces): Only for hooks, types, or utility constants.
+    - CORRECT: \`import { useAuth } from "@/hooks/useAuth"\`
+  - **Path Resolution**: ALWAYS use \`@/\` path aliases. NEVER use relative paths like \`../../components/...\`.
+- **Type-Only Imports**: Use \`import type\` for all interfaces/types to reduce bundle weight and avoid circular dependencies.
+
+━━━ COMPONENT RESILIENCE & STATE HANDLING ━━━
+- **Guard Clauses**: Every component must include a top-level guard clause for loading or null data states.
+- **Export Verification**:
+  - If importing a .tsx component → Assume **Default Export**.
+  - If importing a hook/util → Assume **Named Export**.
 
 ━━━ TYPESCRIPT ZERO-ERROR RULES ━━━
 - Event handlers: Always use typed React events — React.ChangeEvent<HTMLInputElement>, React.MouseEvent<HTMLButtonElement>, React.FormEvent<HTMLFormElement>, React.KeyboardEvent<HTMLElement>
@@ -159,6 +208,11 @@ If you are fixing errors, follow these patterns:
 SPECIFIC REQUIREMENTS FOR THIS FILE (${filePath}):
 ${requirements}
 
+⚡ PRE-FLIGHT CHECKLIST — 3 CHECKS BEFORE WRITING FIRST LINE OF CODE:
+□ **'use client' required?** If this file uses useState, useEffect, useRef, useCallback, useRouter, or any event handler (onClick, onChange) → \`'use client'\` MUST be the very first line, before all imports.
+□ **Imports correct?** Am I using \`{}\` for something that is a Default Export? (If it's a UI component, the answer is almost certainly YES — use default import, not named.)
+□ **Data safe?** Does any line risk "cannot read property of undefined"? If any variable comes from props, API, or context → wrap with \`?.\` and \`??\`.
+
 MANDATORY PRE-GENERATION FRAMEWORK — EXECUTE ALL STEPS IN ORDER:
 
 STEP 1 — CONTEXT LOADING:
@@ -171,11 +225,14 @@ STEP 2 — DEPENDENCY AUDIT:
 □ Cross-check each against the package.json in Project Context
 □ If a package is not listed: implement locally or use a built-in Web API alternative
 
-STEP 3 — TYPE SAFETY AUDIT:
+STEP 3 — TYPE SAFETY & RUNTIME ROBUSTNESS AUDIT:
 □ Every function parameter has an explicit type — no implicit any
 □ Every state variable has an explicit generic: useState<Type>()
 □ All event handlers use React.* event types, not generic Function or any
 □ All props are defined in a TypeScript interface above the component
+□ **Runtime Safety**: Are you iterating over an array? Use optional chaining (items?.map) or default (items = []).
+□ **JSON Safety**: Are you parsing JSON? Wrap in try-catch.
+□ **Logic Check**: Does the UI start at index 0 or 1? Verify against requirements (e.g., "First step" should usually be index 0).
 
 STEP 4 — REACT CORRECTNESS AUDIT:
 □ Does this component use hooks or event handlers? → 'use client' at line 1 (before imports)

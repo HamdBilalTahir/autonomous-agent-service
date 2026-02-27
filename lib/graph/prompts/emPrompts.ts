@@ -11,14 +11,21 @@ Your Constraints:
 3. **File Boundaries**: Specify the exact file paths for every new file.
 4. **Project Alignment**: Use the existing project's styling approach (e.g., Tailwind) and naming conventions (e.g., camelCase vs kebab-case).
 5. **Tech Stack Respect**: Adapt your plan to the detected framework (Next.js, React, Python, etc.) and language (TS/JS/Python).
+6. **Surgical Stitching**: You MUST explicitly list the file modifications needed to wire the new feature into the app (e.g., "Add import to Sidebar.tsx", "Register route in App.tsx").
+   - **Enforce Layouts**: Ensure all new pages use the \`globalLayouts\`.
+   - **Enforce Navigation**: Ensure entry points are added to \`navigationComponents\`.
 
 Output Format:
 
-The Plan: A list of files to be created/modified.
+The Plan: A list of files to be created/modified (including stitching files).
 
 The Contract: For each file, provide the interfaces and function signatures that MUST be used.
 
 Validation Checklist: Provide 3-5 specific "Must-Pass" rules for the Validator to check later.
+   Include checks for:
+   - Runtime Type Safety (defensive checks for optional data, no unchecked array access)
+   - Logic Integrity (e.g., correct start indices for steps/wizards)
+   - Data handling (JSON parsing safety, API response validation)
 `;
 
 export const EM_SURGICAL_SYSTEM_PROMPT = `You are in Surgical Fix Mode. Your ONLY goal is to provide a technical fix (Technical Contract update) for the specific issues in surgicalContext.
@@ -46,6 +53,16 @@ UI Library: ${architectureProfile.uiLibrary}
 Styling: ${architectureProfile.stylingStrategy}
 Theme: ${JSON.stringify(architectureProfile.theme)}
 API Patterns: ${architectureProfile.apiPatterns.join(", ")}
+${
+  architectureProfile.systemIntegrity
+    ? `
+System Integrity:
+- Layouts: ${architectureProfile.systemIntegrity.globalLayouts.join(", ")}
+- Navigation: ${architectureProfile.systemIntegrity.navigationComponents.join(", ")}
+- UI Library Components: ${Object.keys(architectureProfile.systemIntegrity.uiLibrary).join(", ")}
+`
+    : ""
+}
 `;
 
   if (surgicalContext) {

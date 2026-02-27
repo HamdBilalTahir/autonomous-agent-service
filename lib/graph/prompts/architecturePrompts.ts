@@ -19,6 +19,11 @@ ANALYZE THE FOLLOWING:
 10. **Component Patterns**: How are components structured?
 11. **State Management**: Libraries used for state.
 12. **API Patterns**: How are API routes organized?
+13. **System Integrity**:
+    - **Global Layouts**: Locate all layout wrapper files (e.g., \`layout.tsx\`).
+    - **Navigation Components**: Identify key navigation files (e.g., \`Sidebar.tsx\`, \`NavBar.tsx\`, \`Header.tsx\`).
+    - **Active Routes**: List all registered page routes (e.g., \`app/dashboard/page.tsx\`).
+    - **UI Library**: Map reusable UI component names to their file paths (e.g., \`Button\` -> \`components/ui/button.tsx\`).
 
 OUTPUT INSTRUCTIONS:
 - Be precise. If you are unsure, state "Unknown".

@@ -8,6 +8,7 @@ import { extractTokenUsage } from "../metrics-utils";
 import { verifyImports } from "../import-guard";
 import { ExecutionPlanSchema, ValidationSchema } from "../schema";
 import { getValidationSystemPrompt } from "../prompts/validationPrompts";
+import { checkTsSyntax } from "../ts-syntax-check";
 
 const MAX_FILE_ATTEMPTS = 3; // Per-file generate→validate cycles
 const INLINE_VALIDATION_TIMEOUT_MS = 60_000;
@@ -207,6 +208,7 @@ ${(executionPlan?.filesToModify || []).join("\n")}
         contextString,
         designSpecsString,
         state.codebaseTree,
+        architectureProfile,
       );
 
       // Errors from the outer validation loop relevant to this file
@@ -222,7 +224,8 @@ ${(executionPlan?.filesToModify || []).join("\n")}
       let fileUsage = { prompt: 0, completion: 0, total: 0 };
 
       for (let attempt = 0; attempt < MAX_FILE_ATTEMPTS; attempt++) {
-        const isRetry = attempt > 0 || (needsRevision && outerErrors.length > 0);
+        const isRetry =
+          attempt > 0 || (needsRevision && outerErrors.length > 0);
 
         // GENERATE
         const userPrompt = getFrontendEngineerUserPrompt(
@@ -269,6 +272,18 @@ ${(executionPlan?.filesToModify || []).join("\n")}
           currentErrors = [importError];
           previousContent = content;
           continue; // Skip inline validation, retry generation with the import error
+        }
+
+        // TypeScript syntax check (zero-cost, in-process — catches structural parse errors
+        // before spending an LLM call on already-broken code)
+        const syntaxErrors = checkTsSyntax(filePath, content);
+        if (syntaxErrors.length > 0) {
+          console.log(
+            `⚠️ [Engineer Node][${state.ticketId}] ${filePath} attempt ${attempt + 1}: syntax check failed (${syntaxErrors.length} error(s))`,
+          );
+          currentErrors = syntaxErrors;
+          previousContent = content;
+          continue; // Skip inline validation, retry generation with the syntax errors
         }
 
         // VALIDATE inline
