@@ -99,7 +99,7 @@ export async function validationNode(state: typeof AgentState.State) {
   );
 
   const tokenUsage = { prompt: 0, completion: 0, total: 0 };
-  const VALIDATION_TIMEOUT_MS = 90_000;
+  const VALIDATION_TIMEOUT_MS = 300_000;
   const MAX_FILE_RETRIES = 3;
 
   // On a revision round, only re-validate the files the engineer just fixed.

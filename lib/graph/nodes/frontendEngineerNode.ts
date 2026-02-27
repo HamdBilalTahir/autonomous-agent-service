@@ -11,7 +11,7 @@ import { getValidationSystemPrompt } from "../prompts/validationPrompts";
 import { checkTsSyntax } from "../ts-syntax-check";
 
 const MAX_FILE_ATTEMPTS = 3; // Per-file generate→validate cycles
-const INLINE_VALIDATION_TIMEOUT_MS = 60_000;
+const INLINE_VALIDATION_TIMEOUT_MS = 300_000;
 const WARNING_LENIENCY_ROUND = 5;
 
 /**
