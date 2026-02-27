@@ -19,7 +19,9 @@ import { createTokenUsageCallback } from "../metrics-utils";
  */
 export async function architectureNode(state: typeof AgentState.State) {
   const startTime = Date.now();
-  console.log(`\n🏛️ [Architecture Node][${state.ticketId}] Analyzing project structure...`);
+  console.log(
+    `\n🏛️ [Architecture Node][${state.ticketId}] Analyzing project structure...`,
+  );
 
   // Analyze the project context (files, configs)
   // This reuses the logic we built earlier, but now it feeds the Architecture Agent
@@ -32,7 +34,9 @@ export async function architectureNode(state: typeof AgentState.State) {
   // Check cache
   const cachedProfile = await getCached(cacheKey);
   if (cachedProfile) {
-    console.log(`⚡ [Architecture Node][${state.ticketId}] Using cached profile.`);
+    console.log(
+      `⚡ [Architecture Node][${state.ticketId}] Using cached profile.`,
+    );
     return {
       architectureProfile: JSON.parse(cachedProfile),
       projectContext: rawProjectContext,
@@ -40,7 +44,7 @@ export async function architectureNode(state: typeof AgentState.State) {
   }
 
   const model = new ChatGoogleGenerativeAI({
-    model: process.env.GEMINI_MODEL || "gemini-1.5-pro",
+    model: "gemini-3.1-pro-preview",
     apiKey: process.env.GEMINI_API_KEY,
     temperature: 0,
   });
@@ -70,16 +74,22 @@ export async function architectureNode(state: typeof AgentState.State) {
 
   console.log(`✅ [Architecture Node][${state.ticketId}] Profile Generated:`);
   console.log(
-    `   Next.js: ${architectureProfile.nextJsVersion} | Tailwind: ${architectureProfile.tailwindVersion}`,
+    `   Language: ${architectureProfile.language} | Framework: ${architectureProfile.framework}`,
   );
-  console.log(`   Styling: ${architectureProfile.stylingApproach}`);
-  console.log(`   Fonts: ${architectureProfile.fonts.join(", ")}`);
+  console.log(
+    `   UI: ${architectureProfile.uiLibrary} | DB: ${architectureProfile.database}`,
+  );
+  console.log(
+    `   Theme: ${architectureProfile.theme?.colors} | Spacing: ${architectureProfile.theme?.spacing}`,
+  );
 
   // Cache the result
   await setCached(cacheKey, JSON.stringify(architectureProfile));
 
   const duration = Date.now() - startTime;
-  console.log(`⏱️ [Architecture Node][${state.ticketId}] Completed in ${duration}ms`);
+  console.log(
+    `⏱️ [Architecture Node][${state.ticketId}] Completed in ${duration}ms`,
+  );
 
   return {
     architectureProfile,

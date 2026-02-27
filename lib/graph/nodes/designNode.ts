@@ -2,6 +2,7 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { AgentState } from "../state";
 import {
   DESIGN_SYSTEM_PROMPT,
+  DESIGN_SURGICAL_SYSTEM_PROMPT,
   getDesignUserPrompt,
 } from "../prompts/designPrompts";
 import { DesignSpecificationsSchema } from "../schema";
@@ -21,16 +22,18 @@ export async function designNode(state: typeof AgentState.State) {
     executionPlan,
     architectureProfile,
     projectContext,
+    surgicalContext,
   } = state;
 
+  const mode = surgicalContext ? "SURGICAL" : "STANDARD";
   console.log(
-    `\n🎨 [Design Node][${state.ticketId}] Starting design analysis for ticket:`,
+    `\n🎨 [Design Node][${state.ticketId}] Starting design analysis (${mode} MODE) for ticket:`,
     state.ticketSummary,
   );
 
   // Initialize the Gemini model
   const model = new ChatGoogleGenerativeAI({
-    model: process.env.GEMINI_MODEL || "gemini-1.5-pro",
+    model: "gemini-3.1-pro-preview",
     apiKey: process.env.GEMINI_API_KEY,
     temperature: 0.2, // Low temperature for consistent design systems
   });
@@ -46,9 +49,10 @@ export async function designNode(state: typeof AgentState.State) {
   // Format architecture profile for the prompt
   const profileString = architectureProfile
     ? `ARCHITECTURE PROFILE:
-- Next.js: ${architectureProfile.nextJsVersion} (${architectureProfile.configStyle})
-- Tailwind: ${architectureProfile.tailwindVersion}
-- Styling: ${architectureProfile.stylingApproach}
+- Framework: ${architectureProfile.framework}
+- UI Library: ${architectureProfile.uiLibrary}
+- Styling: ${architectureProfile.stylingStrategy}
+- Theme: Colors=${architectureProfile.theme?.colors}, Spacing=${architectureProfile.theme?.spacing}
 - Components: ${architectureProfile.componentPatterns.join(", ")}
 - State Management: ${architectureProfile.stateManagement.join(", ")}
 - API Patterns: ${architectureProfile.apiPatterns.join(", ")}
@@ -70,6 +74,7 @@ ${executionPlan.implementationInstructions}
     ticketDescription,
     profileString,
     planString,
+    surgicalContext,
   );
 
   console.log(
@@ -81,9 +86,13 @@ ${executionPlan.implementationInstructions}
   let tokenUsage = { prompt: 0, completion: 0, total: 0 };
   const TokenHandler = createTokenUsageCallback(tokenUsage);
 
+  const systemPrompt = surgicalContext
+    ? DESIGN_SURGICAL_SYSTEM_PROMPT
+    : DESIGN_SYSTEM_PROMPT;
+
   const result = await structuredModel.invoke(
     [
-      ["system", DESIGN_SYSTEM_PROMPT],
+      ["system", systemPrompt],
       ["user", userPrompt],
     ],
     {
@@ -91,7 +100,9 @@ ${executionPlan.implementationInstructions}
     },
   );
 
-  console.log(`✅ [Design Node][${state.ticketId}] Design Specifications Generated:`);
+  console.log(
+    `✅ [Design Node][${state.ticketId}] Design Specifications Generated:`,
+  );
   console.log(`   Primary Color: ${result.colorSystem.primary}`);
   console.log(`   Typography Headings: ${result.typography.headings.length}`);
   console.log(`   Components Defined: ${result.components.length}`);

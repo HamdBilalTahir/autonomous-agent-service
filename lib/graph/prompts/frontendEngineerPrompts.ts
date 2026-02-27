@@ -38,6 +38,7 @@ export function getFrontendEngineerSystemPrompt(
   filePath: string,
   projectContext: string,
   designSpecs?: string,
+  codebaseTree?: string,
 ): string {
   const requirements = getFileRequirements(filePath);
 
@@ -49,11 +50,25 @@ ${designSpecs}
 `
     : "";
 
+  const fileTreeContext = codebaseTree
+    ? `
+PROJECT FILE STRUCTURE (Use this to verify import paths):
+${codebaseTree}
+`
+    : "";
+
   return `You are an expert Next.js Frontend Engineer.
 Your Product Manager has provided a strict architectural plan.
 ${designContext}
+${fileTreeContext}
 Write the complete, runnable code for the exact files requested in the plan.
 Output only the raw code. Do not hallucinate new features or routes outside the provided plan.
+
+STRICT CONTRACT ADHERENCE:
+You must implement the UI exactly as specified in the technicalContract. Use the defined TypeScript interfaces. If technicalContract is empty (Low Complexity), proceed with standard best practices based on the User Story.
+- Adhere exactly to the TypeScript interfaces and prop names defined in the plan.
+- Do not modify or "improve" the interfaces unless explicitly instructed.
+- Ensure all prop names match the contract character-for-character.
 
 CONTEXTUAL ANCHORING & SELF-CORRECTION:
 Before writing a single line of code, you must internally:
@@ -78,15 +93,54 @@ DO NOT:
 - Use incompatible syntax versions
 - Break existing build processes
 
-CRITICAL CODING STANDARDS:
-1. COMPLETE CODE: Generate the full file content. Do not use placeholders like "// ... rest of code".
-2. IMPORTS: Use proper relative or absolute imports. Verify each import path against the project structure.
-3. TYPESCRIPT: strict typing, define interfaces for all props and state. Avoid "any".
-4. REACT: Functional components, hooks (useState, useEffect, useMemo, useCallback).
-5. TAILWIND: Use standard Tailwind utility classes. Do not create custom CSS files unless specified.
-6. ERROR HANDLING: Implement proper try/catch blocks and UI error states.
-7. ACCESSIBILITY: Ensure proper ARIA attributes and semantic HTML.
-8. EXPORTS: Ensure the component or function is properly exported (usually default for components).
+ZERO-FAILURE GENERATION FRAMEWORK:
+These are not suggestions — they are rules. Code that violates any of these will fail validation.
+
+━━━ TYPESCRIPT ZERO-ERROR RULES ━━━
+- Event handlers: Always use typed React events — React.ChangeEvent<HTMLInputElement>, React.MouseEvent<HTMLButtonElement>, React.FormEvent<HTMLFormElement>, React.KeyboardEvent<HTMLElement>
+- State with null/undefined: Declare explicitly — useState<User | null>(null), not useState(null)
+- Props interface: Every prop must be in the interface. No implicit any through omission. No optional prop without a defined fallback.
+- String unions over enums: Use 'success' | 'error' | 'idle' instead of enum Status {}
+- No 'as' casts to silence errors: If TypeScript complains, fix the type — never cast away the problem
+- Generic constraints: Constrain generics (T extends Record<string, unknown>) rather than leaving T unconstrained
+- Return types: Add explicit return types to all functions that return non-trivial values
+- Avoid 'any': If you cannot type something, use 'unknown' and narrow it with a type guard. Never use any.
+- Optional chaining: Use ?. and ?? consistently — never assume a value is non-null without a guard
+
+━━━ ESLINT ZERO-WARNING RULES ━━━
+- Unused variables: Remove every unused import, variable, and parameter. If a destructured name must be skipped, use _ prefix or remove it
+- useEffect dependency array: Include ALL values read inside useEffect. If you call a function inside useEffect, either add it to deps or wrap it in useCallback outside the effect
+- Async in useEffect: Never useEffect(async () => {...}). Always wrap: useEffect(() => { const run = async () => {...}; run(); }, [deps])
+- Keys in lists: Every .map() that renders JSX MUST have a unique, stable key — never use array index as key unless the list is static and never reordered
+- const vs let: const for everything that is never reassigned. let ONLY when reassignment is required
+- React imports: In Next.js (React 17+), do NOT import React for JSX. Only import specific hooks and types you actually use
+- Hook call rules: Never call hooks inside conditions, loops, or nested functions
+
+━━━ REACT / NEXT.JS CLIENT COMPONENT RULES ━━━
+'use client' DECISION (mandatory check for every component file):
+- Uses any of: useState, useEffect, useRef, useCallback, useMemo, useContext, useReducer, useRouter (next/navigation), useSearchParams, or any event handler (onClick, onChange, onSubmit) → 'use client' MUST be the first line, before all imports
+- Pure rendering with only props and no hooks → Server Component (no directive)
+
+Hook patterns:
+- useCallback: Wrap ALL functions defined inside a component that are passed as props to child components or used as useEffect dependencies
+- useMemo: Wrap array transforms, filtering, and sorting that run on renders with meaningful data
+- useEffect cleanup: Every useEffect with subscriptions, intervals, event listeners, or WebSocket connections MUST return a cleanup function
+- Data fetching: Use async function inside useEffect, not async useEffect directly
+
+━━━ TAILWIND CSS COMPLIANCE ━━━
+- Use ONLY standard Tailwind v3 utility classes — check the project config to verify available utilities
+- Arbitrary values: Use proper bracket notation — w-[320px], text-[#FF0000], grid-cols-[1fr_2fr]
+- Conditional classes: Use cn() or clsx() for conditional className logic — never string template concatenation (className={\`base \${condition ? 'active' : ''}\`} causes hydration issues and empty string classes)
+- Never invent class names: Do not use classes like text-primary-dark or bg-brand unless they exist in the project's tailwind.config.ts
+- Mobile-first: Use sm:, md:, lg: breakpoints. Start with the mobile layout, progressively enhance
+
+━━━ IMPORT / EXPORT COMPLIANCE ━━━
+- Path aliases: Use @/ only when tsconfig.json paths configuration includes it (verify in Project Context)
+- Relative paths: ./filename for same directory, ../filename for parent — always verify against the file tree
+- Default vs named: Default export for page/component files. Named exports for utilities, types, and hooks
+- Type-only imports: import type { Foo } when you only need Foo at the type level (not at runtime)
+- External packages: ONLY import packages listed in package.json. If a package is missing, implement the functionality locally or use a built-in alternative
+- No circular dependencies: If FileA imports from FileB, FileB must not import from FileA
 
 COMPLETE IMPLEMENTATION REQUIREMENTS:
 - Include realistic mock data or API integration
@@ -105,12 +159,46 @@ If you are fixing errors, follow these patterns:
 SPECIFIC REQUIREMENTS FOR THIS FILE (${filePath}):
 ${requirements}
 
-CRITICAL: PRE-FLIGHT CHECKLIST (DO NOT SKIP):
-Before outputting code, simulate these checks:
-1. 'use client' Check: If you used hooks (useState, etc.), is 'use client' at line 1?
-2. Import Verification: Are you importing from files mentioned in the Execution Plan or cleanFiles? If not, define them locally or use standard library.
-3. Prop-Type Alignment: If you are using a component from 'cleanFiles', your props MUST strictly match the interfaces defined in those files.
-4. Path Aliasing: Use standard Next.js aliases (e.g., @/) for absolute imports only if a tsconfig exists in Project Context. Otherwise, use relative paths.`;
+MANDATORY PRE-GENERATION FRAMEWORK — EXECUTE ALL STEPS IN ORDER:
+
+STEP 1 — CONTEXT LOADING:
+□ Read the full execution plan — understand every file being created or modified in this sprint
+□ Identify which files this file imports from, and which files will import from this file
+□ Note all TypeScript interfaces and types defined in other plan files that this file must conform to
+
+STEP 2 — DEPENDENCY AUDIT:
+□ List every external package import you plan to use
+□ Cross-check each against the package.json in Project Context
+□ If a package is not listed: implement locally or use a built-in Web API alternative
+
+STEP 3 — TYPE SAFETY AUDIT:
+□ Every function parameter has an explicit type — no implicit any
+□ Every state variable has an explicit generic: useState<Type>()
+□ All event handlers use React.* event types, not generic Function or any
+□ All props are defined in a TypeScript interface above the component
+
+STEP 4 — REACT CORRECTNESS AUDIT:
+□ Does this component use hooks or event handlers? → 'use client' at line 1 (before imports)
+□ Does every useEffect have a complete, correct dependency array?
+□ Does every .map() rendering JSX have a unique, stable key prop?
+□ Are functions passed as props wrapped in useCallback?
+□ Are there any async useEffect patterns? → Replace with inner async function
+
+STEP 5 — BUILD COMPATIBILITY AUDIT:
+□ All import paths resolve to actual files in the project tree
+□ All exported names match what consuming files expect
+□ No circular imports introduced
+□ All Tailwind classes are from the standard v3 spec or defined in project config
+
+STEP 6 — GENERATE THE CODE
+
+STEP 7 — MANDATORY SELF-REVIEW (read your output before returning it):
+□ Any unused import or variable? Remove it.
+□ Any implicit 'any' or missing type annotation? Add it.
+□ Any .map() without a key prop? Add a stable key.
+□ Any useEffect missing a dependency? Add it.
+□ Any potential null/undefined crash? Add an optional chain or guard.
+□ Does 'use client' appear before the first import? Reorder if needed.`;
 }
 
 export function getFrontendEngineerUserPrompt(
@@ -122,8 +210,30 @@ export function getFrontendEngineerUserPrompt(
   errorHistory?: string[][],
   cleanFiles?: string[],
   roundNumber?: number,
+  surgicalMode?: boolean,
+  previousContent?: string,
 ): string {
   let prompt = "";
+
+  if (surgicalMode) {
+    prompt += `
+🚨 SURGICAL FIX MODE 🚨
+You are fixing CRITICAL ERRORS in a specific set of files.
+Your goal is to fix the errors WITHOUT breaking existing functionality.
+Do NOT regenerate files not listed in the Surgical Plan.
+`;
+  }
+
+  if (previousContent) {
+    prompt += `
+PREVIOUS IMPLEMENTATION — patch this, do not rewrite from scratch:
+\`\`\`tsx
+${previousContent}
+\`\`\`
+
+Make the minimum changes needed to fix the errors listed below. Preserve all correct logic unchanged.
+`;
+  }
 
   prompt += `Plan Feature Scope: ${featureScope}
 Implementation Instructions: ${implementationInstructions}

@@ -2,6 +2,183 @@
 
 ---
 
+### ✨ Features
+
+---
+
+> ### Surgical Delta Context Masking
+>
+> - **What changed:** Implemented "Surgical Delta" logic in Validation, EM, Design, and Engineer nodes to optimize error recovery after round 5.
+> - **Why:** To reduce token costs, prevent context drift, and speed up critical fixes by narrowing the scope to only failing components.
+> - **Files:**
+>   - `lib/graph/schema.ts`
+>   - `lib/graph/state.ts`
+>   - `lib/graph/nodes/validationNode.ts`
+>   - `lib/graph/nodes/emNode.ts`
+>   - `lib/graph/prompts/emPrompts.ts`
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/graph/prompts/frontendEngineerPrompts.ts`
+>   - `lib/graph/nodes/designNode.ts`
+>   - `lib/graph/prompts/designPrompts.ts`
+
+> ### Model Standardization
+>
+> - **What changed:** Replaced environment variable-based model selection with hardcoded Gemini models. Pro nodes (EM, Design, Engineer, Architecture) use `gemini-3.1-pro-preview`, while others use `gemini-3-flash-preview`.
+> - **Why:** Enforce strictly defined intelligence tiers for each agent role, ensuring cost-efficiency for simple tasks and maximum reasoning power for complex ones.
+> - **Files:**
+>   - `lib/graph/nodes/*.ts`
+
+### 🧹 Refactors
+
+---
+
+> ### Enhanced Node Logging
+>
+> - **What changed:** Added comprehensive start/end/error logging and execution duration timing to all graph nodes.
+> - **Why:** Improve observability and debugging of the autonomous workflow execution.
+> - **Files:**
+>   - `lib/graph/nodes/*.ts`
+
+### 🔧 DevOps / Build
+
+---
+
+> ### Environment Cleanup
+>
+> - **What changed:** Removed `GEMINI_MODEL` from `.env` and `.env.example`.
+> - **Why:** Prevent configuration drift and confusion now that models are hardcoded per node.
+> - **Files:**
+>   - `.env`
+>   - `.env.example`
+
+### 📚 Docs
+
+---
+
+> ### Adaptive Workflow Visualization
+>
+> - **What changed:** Updated `README.md` to reflect the new "Adaptive Workflow" with parallel execution and synchronization, replacing the static diagram with a CLI generation command.
+> - **Why:** Ensure documentation accurately reflects the new high-performance architecture.
+> - **Files:**
+>   - `README.md`
+
+---
+
+### ✨ Features
+
+---
+
+> ### Adaptive Sync & Bypass Workflow
+>
+> - **What changed:** Implemented a parallel routing architecture where Low Complexity tickets fast-track to execution (bypassing PM/Design) while High Complexity tickets undergo full planning, synchronized by a new `joinNode` barrier.
+> - **Why:** Drastically reduce latency for simple tasks (< 6 mins) while maintaining rigor for complex ones.
+> - **Files:**
+>   - `lib/graph/index.ts`
+>   - `lib/graph/nodes/joinNode.ts`
+>   - `lib/graph/nodes/updateJiraMetadataNode.ts`
+
+> ### Engineer Self-Planning for Fast-Track
+>
+> - **What changed:** Added fallback logic for the Engineer Node to generate its own lightweight execution plan using `ExecutionPlanSchema` when no PM plan exists (Low Complexity).
+> - **Why:** Enable the Engineer to function autonomously and correctly even when skipping the formal planning phase.
+> - **Files:**
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+
+> ### Blueprint Safety Valve (Escalation)
+>
+> - **What changed:** Implemented an escalation logic in `lib/graph/index.ts`: if the Engineer fails validation 5 times, the ticket is routed back to the Engineering Manager (`emNode`) for a full blueprint revision.
+> - **Why:** Prevent infinite loops on "Dead End" tasks where the initial plan was flawed.
+> - **Files:**
+>   - `lib/graph/index.ts`
+
+> ### Explicit PR and Jira Status Nodes
+>
+> - **What changed:** Added `createPrNode` and `updateJiraStatusNode` to the graph, moving PR creation and final Jira transition/commenting logic out of the API route and into the workflow.
+> - **Why:** Ensure the entire lifecycle (including delivery) is managed, logged, and retryable within the LangGraph architecture.
+> - **Files:**
+>   - `lib/graph/nodes/createPrNode.ts`
+>   - `lib/graph/nodes/updateJiraStatusNode.ts`
+>   - `lib/graph/index.ts`
+
+---
+
+### 🧹 Refactors
+
+---
+
+> ### Engineer Model Upgrade to Gemini 3.1
+>
+> - **What changed:** Hardcoded the Frontend Engineer Node to use `gemini-3.1-pro-preview`.
+> - **Why:** Improve code generation quality and instruction following capabilities.
+> - **Files:**
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+
+> ### Strict Contract Enforcement Prompting
+>
+> - **What changed:** Updated Engineer prompts to explicitly enforce adherence to the technical contract (execution plan) interfaces, with specific instructions for Low Complexity handling.
+> - **Why:** Reduce "hallucinated" code and ensure alignment with the architectural plan.
+> - **Files:**
+>   - `lib/graph/prompts/frontendEngineerPrompts.ts`
+
+> ### Deterministic Triage & Validation Routing
+>
+> - **What changed:** Updated `triageNode` and `validationNode` conditional edges to explicitly restrict destinations, pruning unused paths.
+> - **Why:** Enforce deterministic routing by removing ambiguous "dotted line" edges in the graph visualization and execution, ensuring strict adherence to High/Low complexity flows and binary Validation outcomes.
+> - **Files:**
+>   - `lib/graph/index.ts`
+
+> ### Sequential Triage-Admin Flow
+>
+> - **What changed:** Restructured the graph start to a strict sequential path: `triageNode` -> `updateJiraMetadataNode` -> [Split].
+> - **Why:** Eliminate race conditions between Triage and Jira updates, ensuring metadata is always synced before any planning or execution begins.
+> - **Files:**
+>   - `lib/graph/index.ts`
+
+> ### Route Handler Cleanup
+>
+> - **What changed:** Removed business logic from `app/api/process-ticket/route.ts`, delegating all work to the graph nodes.
+> - **Why:** Improve separation of concerns and make the API layer a thin wrapper around the autonomous agent.
+> - **Files:**
+>   - `app/api/process-ticket/route.ts`
+
+---
+
+### ⚡ Performance
+
+---
+
+> ### Implement Fast-Track Architecture for Low Complexity Tickets
+>
+> - **What changed:** Updated graph routing to skip planning nodes (PM, EM, Design) for "Low" complexity tickets and route directly to execution.
+> - **Why:** Reduces overhead and execution time for simple tasks by avoiding unnecessary planning steps ("Spiderweb" to "Fast-Track").
+> - **Files:**
+>   - `lib/graph/index.ts`
+>   - `lib/graph/nodes/joinNode.ts`
+
+> ### Streamline Fast-Track Routing
+>
+> - **What changed:** Simplified `triageNode` routing for Low complexity tickets to follow a strictly linear path (`triage` → `updateJiraMetadata` → `join`), removing the redundant parallel edge to `joinNode`.
+> - **Why:** Align with the optimized "Clean & Fast" flow diagram and reduce graph complexity while maintaining functionality.
+> - **Files:**
+>   - `lib/graph/index.ts`
+
+> ### Consolidate Join Node with Command API
+>
+> - **What changed:** Refactored `joinNode` to use LangGraph's `Command` API for dynamic navigation, replacing the external `checkJoin` conditional edge.
+> - **Why:** Enforce a strict "Sync Gate" pattern where the join node halts execution until all parallel branches (Admin & Planning) are complete, removing complex routing logic from the graph definition.
+> - **Files:**
+>   - `lib/graph/nodes/joinNode.ts`
+>   - `lib/graph/index.ts`
+
+> ### Strict Validation Exit Strategy
+>
+> - **What changed:** Refactored `validationNode` routing to enforce a strict binary outcome: Success (`END`) or Failure (`frontendEngineerNode`). Removed the internal validation retry loop and ensured no paths lead back to architecture or triage nodes.
+> - **Why:** Prevent "context drift" and ensure that code failures are always handled by the Engineer (who generates the code) rather than restarting the architectural planning or looping on flaky validation calls.
+> - **Files:**
+>   - `lib/graph/index.ts`
+
+---
+
 ### 🐛 Fixes
 
 ---

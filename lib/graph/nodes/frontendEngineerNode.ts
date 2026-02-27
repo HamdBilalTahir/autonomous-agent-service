@@ -6,15 +6,19 @@ import {
 } from "../prompts/frontendEngineerPrompts";
 import { extractTokenUsage } from "../metrics-utils";
 import { verifyImports } from "../import-guard";
+import { ExecutionPlanSchema, ValidationSchema } from "../schema";
+import { getValidationSystemPrompt } from "../prompts/validationPrompts";
+
+const MAX_FILE_ATTEMPTS = 3; // Per-file generate→validate cycles
+const INLINE_VALIDATION_TIMEOUT_MS = 60_000;
+const WARNING_LENIENCY_ROUND = 5;
 
 /**
  * The Frontend Engineer Agent node.
- * Responsibilities:
- * 1. Read the execution plan from the PM.
- * 2. Generate code for new and modified files.
- * 3. On revision: perform targeted fixes on faulty files only (up to 3 retries per round).
- * 4. After 3 retries, start a new round with full regeneration.
- * 5. Unlimited rounds until validation passes.
+ * Each file is generated and validated in its own parallel stream.
+ * Files loop between generate→validate until they pass or exhaust attempts.
+ * Only when all files complete does the node return.
+ * The outer validationNode is a final safety-net checkpoint.
  */
 export async function frontendEngineerNode(state: typeof AgentState.State) {
   const startTime = Date.now();
@@ -30,53 +34,108 @@ export async function frontendEngineerNode(state: typeof AgentState.State) {
     generatedCode: existingCode,
     errorAttemptHistory,
     fullExecutionPlan: stateFullExecutionPlan,
+    surgicalContext,
+    checkpointFiles,
   } = state;
 
   // Every engineer call = one new round. Always increment.
   const nextRound = (roundCount ?? 0) + 1;
+  const isLenient = nextRound >= WARNING_LENIENCY_ROUND;
   let filesToGenerate: string[] = [];
   let isTargetedFix = false;
 
+  const model = new ChatGoogleGenerativeAI({
+    model: "gemini-3.1-pro-preview",
+    apiKey: process.env.GEMINI_API_KEY,
+    temperature: 0,
+  });
+
+  // Validation model for inline per-file validation
+  const validationModel = new ChatGoogleGenerativeAI({
+    model: "gemini-3.1-pro-preview",
+    apiKey: process.env.GEMINI_API_KEY,
+    temperature: 0,
+  });
+  const structuredValidationModel = validationModel.withStructuredOutput(
+    ValidationSchema,
+    { name: "validate_code" },
+  );
+
+  // Low Complexity / No Plan fallback: Determine files to modify using LLM
+  let effectiveExecutionPlan = executionPlan;
+
+  if (!executionPlan && !needsRevision && !validationCrashed) {
+    console.log(
+      `ℹ️ [Engineer Node][${state.ticketId}] No Execution Plan. Generating lightweight plan (Low Complexity)...`,
+    );
+
+    const structuredModel = model.withStructuredOutput(ExecutionPlanSchema, {
+      name: "create_lightweight_plan",
+    });
+
+    const planPrompt = `
+You are a Senior Frontend Engineer handling a Low Complexity task.
+The user request is: "${state.ticketDescription}"
+
+Codebase Structure:
+${state.codebaseTree}
+
+Identify the files that need to be created or modified to fulfill this request.
+Generate a concise Execution Plan.
+`;
+    try {
+      const result = await structuredModel.invoke([["user", planPrompt]]);
+      effectiveExecutionPlan = result;
+      console.log(
+        `✅ [Engineer Node][${state.ticketId}] Lightweight Plan Generated:`,
+      );
+      console.log(
+        `   Files to Create: ${result.newFilesToCreate?.join(", ") || "None"}`,
+      );
+      console.log(
+        `   Files to Modify: ${result.filesToModify?.join(", ") || "None"}`,
+      );
+    } catch (e) {
+      console.error(
+        `❌ [Engineer Node][${state.ticketId}] Failed to generate lightweight plan.`,
+        e,
+      );
+    }
+  }
+
   const allFiles = [
-    ...(executionPlan.newFilesToCreate || []),
-    ...(executionPlan.filesToModify || []),
+    ...(effectiveExecutionPlan?.newFilesToCreate || []),
+    ...(effectiveExecutionPlan?.filesToModify || []),
   ];
 
   // Determine generation mode
-  if (validationCrashed) {
-    // Technical crash — full regeneration to recover
+  if (surgicalContext) {
+    filesToGenerate = surgicalContext.failingFilePaths;
+    isTargetedFix = true;
+    console.log(
+      `🚑 [Engineer Node][${state.ticketId}] SURGICAL MODE (Round ${nextRound}). Fixing: ${filesToGenerate.join(", ")}`,
+    );
+  } else if (validationCrashed) {
     filesToGenerate = allFiles;
     console.log(
       `🔥 [Engineer Node][${state.ticketId}] Validation crashed. Full regen (Round ${nextRound}).`,
     );
   } else if (needsRevision) {
-    // Targeted fix — only regenerate files listed in validation errors/warnings
     isTargetedFix = true;
-
-    const errorFiles = new Set<string>();
-    (validationErrors || []).forEach((err) => {
-      // Supports paths with @ alias (e.g., @/components/Foo.tsx)
-      const match = err.match(/\]\s+([@a-zA-Z0-9_\-\/.]+)(?::|\s-)/);
-      if (match && match[1]) {
-        errorFiles.add(match[1].trim());
-      }
-    });
-
-    if (errorFiles.size > 0) {
-      filesToGenerate = Array.from(errorFiles);
+    const revisionFiles = state.filesNeedingRevision;
+    if (revisionFiles && revisionFiles.length > 0) {
+      filesToGenerate = revisionFiles;
     } else {
       console.warn(
-        `⚠️ [Engineer Node][${state.ticketId}] Could not parse filenames from errors. Regenerating all files.`,
+        `⚠️ [Engineer Node][${state.ticketId}] No filesNeedingRevision found. Regenerating all files.`,
       );
       filesToGenerate = allFiles;
       isTargetedFix = false;
     }
-
     console.log(
       `🛠️ [Engineer Node][${state.ticketId}] Targeted Fix (Round ${nextRound}): ${filesToGenerate.join(", ")}`,
     );
   } else {
-    // Initial run — generate all files for the first time
     filesToGenerate = allFiles;
     console.log(
       `🚀 [Engineer Node][${state.ticketId}] Initial Code Generation (Round ${nextRound}).`,
@@ -87,29 +146,24 @@ export async function frontendEngineerNode(state: typeof AgentState.State) {
     `\n💻 [Engineer Node][${state.ticketId}] Starting generation (Round ${nextRound})...`,
   );
 
-  const model = new ChatGoogleGenerativeAI({
-    model: process.env.GEMINI_MODEL || "gemini-1.5-pro",
-    apiKey: process.env.GEMINI_API_KEY,
-    temperature: 0,
-  });
-
-  // Initialize output — keep existing code if targeted fix, otherwise start fresh
+  // Initialize output — targeted fix starts with existing code as base
+  const baseFiles = surgicalContext ? checkpointFiles : existingCode;
   const generatedCode: { filePath: string; fileContent: string }[] =
-    isTargetedFix ? [...(existingCode || [])] : [];
+    isTargetedFix ? [...(baseFiles || [])] : [];
 
-  // Files NOT being regenerated — already validated as correct
-  const cleanFiles = (existingCode || [])
+  const cleanFiles = (baseFiles || [])
     .map((f) => f.filePath)
     .filter((p) => !filesToGenerate.includes(p));
 
-  // Deduplicate files to generate
   const uniqueFiles = Array.from(new Set(filesToGenerate));
 
   const contextString = architectureProfile
     ? `ARCHITECTURE PROFILE:
-- Next.js: ${architectureProfile.nextJsVersion}
-- Tailwind: ${architectureProfile.tailwindVersion}
-- Styling: ${architectureProfile.stylingApproach}
+- Framework: ${architectureProfile.framework}
+- Language: ${architectureProfile.language}
+- UI Library: ${architectureProfile.uiLibrary}
+- Styling Strategy: ${architectureProfile.stylingStrategy}
+- Theme: Colors=${architectureProfile.theme?.colors}, Spacing=${architectureProfile.theme?.spacing}
 - Components: ${architectureProfile.componentPatterns.join(", ")}
 - API Patterns: ${architectureProfile.apiPatterns.join(", ")}
 - Fonts: ${architectureProfile.fonts.join(", ")}`
@@ -123,107 +177,158 @@ export async function frontendEngineerNode(state: typeof AgentState.State) {
     stateFullExecutionPlan ||
     `
 NEW FILES:
-${(executionPlan.newFilesToCreate || []).join("\n")}
+${(executionPlan?.newFilesToCreate || []).join("\n")}
 
 FILES TO MODIFY:
-${(executionPlan.filesToModify || []).join("\n")}
+${(executionPlan?.filesToModify || []).join("\n")}
 `;
+
+  // Validation system prompt (shared across all inline validations this round)
+  const validationSystemPrompt = getValidationSystemPrompt(
+    projectContext,
+    architectureProfile,
+    effectiveExecutionPlan,
+  );
+
+  // Keep only last 3 rounds of error history to prevent token bloat
+  const recentErrorHistory = (errorAttemptHistory || []).slice(-3);
 
   let totalTokenUsage = { prompt: 0, completion: 0, total: 0 };
 
-  for (const filePath of uniqueFiles) {
-    console.log(
-      `[Engineer Node][${state.ticketId}] Generating code for ${filePath}...`,
-    );
+  console.log(
+    `[Engineer Node][${state.ticketId}] Running ${uniqueFiles.length} file(s) in parallel (each with up to ${MAX_FILE_ATTEMPTS} generate→validate attempts)...`,
+  );
 
-    const systemPrompt = getFrontendEngineerSystemPrompt(
-      filePath,
-      contextString,
-      designSpecsString,
-    );
-
-    // Errors relevant to this specific file
-    const relevantErrors = (validationErrors || []).filter((err) =>
-      err.includes(filePath),
-    );
-    const errorsForFile =
-      relevantErrors.length > 0
-        ? relevantErrors
-        : (validationErrors || []).filter((e) => !e.includes(":")) || [];
-
-    let retries = 0;
-    const MAX_INTERNAL_RETRIES = 1;
-    let currentInternalError: string | undefined = undefined;
-    let content = "";
-
-    while (retries <= MAX_INTERNAL_RETRIES) {
-      let userPrompt = getFrontendEngineerUserPrompt(
-        executionPlan.featureScope,
-        executionPlan.implementationInstructions,
+  // Per-file parallel streams: each file independently loops generate→validate until it passes
+  const fileResults = await Promise.all(
+    uniqueFiles.map(async (filePath) => {
+      const systemPrompt = getFrontendEngineerSystemPrompt(
         filePath,
-        fullExecutionPlan,
-        needsRevision && errorsForFile.length > 0 ? errorsForFile : undefined,
-        needsRevision ? errorAttemptHistory || [] : undefined,
-        isTargetedFix && cleanFiles.length > 0 ? cleanFiles : undefined,
-        nextRound,
+        contextString,
+        designSpecsString,
+        state.codebaseTree,
       );
 
-      if (currentInternalError) {
-        userPrompt += `\n\nSYSTEM NOTE: ${currentInternalError}`;
-      }
-
-      const result = await model.invoke([
-        ["system", systemPrompt],
-        ["user", userPrompt],
-      ]);
-
-      const usage = extractTokenUsage(result) ?? {
-        prompt: 0,
-        completion: 0,
-        total: 0,
-      };
-      totalTokenUsage.prompt += usage.prompt;
-      totalTokenUsage.completion += usage.completion;
-      totalTokenUsage.total += usage.total;
-
-      content = result.content.toString();
-
-      // Remove markdown code blocks
-      content = content.replace(/^```(?:\w+)?\n/, "").replace(/\n```$/, "");
-
-      // Verify imports
-      const importError = verifyImports(
-        content,
-        executionPlan,
-        state.codebaseTree || "",
+      // Errors from the outer validation loop relevant to this file
+      const outerErrors = (validationErrors || []).filter((err) =>
+        err.includes(filePath),
       );
 
-      if (!importError) {
-        break; // Success
+      let content = "";
+      let currentErrors: string[] = outerErrors; // Start with any outer errors
+      let previousContent: string | undefined = isTargetedFix
+        ? (existingCode || []).find((f) => f.filePath === filePath)?.fileContent
+        : undefined;
+      let fileUsage = { prompt: 0, completion: 0, total: 0 };
+
+      for (let attempt = 0; attempt < MAX_FILE_ATTEMPTS; attempt++) {
+        const isRetry = attempt > 0 || (needsRevision && outerErrors.length > 0);
+
+        // GENERATE
+        const userPrompt = getFrontendEngineerUserPrompt(
+          effectiveExecutionPlan?.featureScope || "Feature Scope Not Provided",
+          effectiveExecutionPlan?.implementationInstructions ||
+            "Follow standard best practices based on the user request.",
+          filePath,
+          fullExecutionPlan,
+          isRetry && currentErrors.length > 0 ? currentErrors : undefined,
+          isRetry ? recentErrorHistory : undefined,
+          isTargetedFix && cleanFiles.length > 0 ? cleanFiles : undefined,
+          nextRound,
+          !!surgicalContext,
+          previousContent,
+        );
+
+        const genResult = await model.invoke([
+          ["system", systemPrompt],
+          ["user", userPrompt],
+        ]);
+
+        const usage = extractTokenUsage(genResult) ?? {
+          prompt: 0,
+          completion: 0,
+          total: 0,
+        };
+        fileUsage.prompt += usage.prompt;
+        fileUsage.completion += usage.completion;
+        fileUsage.total += usage.total;
+
+        content = genResult.content.toString();
+        content = content.replace(/^```(?:\w+)?\n/, "").replace(/\n```$/, "");
+
+        // Quick local import check before spending a model call on validation
+        const importError = verifyImports(
+          content,
+          effectiveExecutionPlan!,
+          state.codebaseTree || "",
+        );
+        if (importError) {
+          console.log(
+            `⚠️ [Engineer Node][${state.ticketId}] ${filePath} attempt ${attempt + 1}: import guard failed — ${importError}`,
+          );
+          currentErrors = [importError];
+          previousContent = content;
+          continue; // Skip inline validation, retry generation with the import error
+        }
+
+        // VALIDATE inline
+        try {
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    `Inline validation timeout for ${filePath} attempt ${attempt + 1}`,
+                  ),
+                ),
+              INLINE_VALIDATION_TIMEOUT_MS,
+            ),
+          );
+
+          const validationResult = await Promise.race([
+            structuredValidationModel.invoke([
+              ["system", validationSystemPrompt],
+              ["user", `FILE: ${filePath}\n\n${content}`],
+            ]),
+            timeoutPromise,
+          ]);
+
+          const fileCriticals = validationResult.criticalErrors ?? [];
+          const fileWarnings = validationResult.warnings ?? [];
+          const filePassed =
+            fileCriticals.length === 0 &&
+            (isLenient || fileWarnings.length === 0);
+
+          console.log(
+            `   [Engineer Node][${state.ticketId}] ${filePath} attempt ${attempt + 1}: ${fileCriticals.length} critical, ${fileWarnings.length} warnings ${filePassed ? "✅" : "🔄"}`,
+          );
+
+          if (filePassed) {
+            break; // File passes — exit inner loop
+          }
+
+          // File still has issues — set up next attempt
+          currentErrors = [...fileCriticals, ...fileWarnings];
+          previousContent = content; // Pass previous code for patch-mode fixing
+        } catch {
+          // Validation timeout — proceed with current content, outer validator catches it
+          console.warn(
+            `⚠️ [Engineer Node][${state.ticketId}] Inline validation timeout for ${filePath} attempt ${attempt + 1}. Proceeding with current content.`,
+          );
+          break;
+        }
       }
 
-      currentInternalError = importError;
-      retries++;
+      return { filePath, content, usage: fileUsage };
+    }),
+  );
 
-      if (retries <= MAX_INTERNAL_RETRIES) {
-        console.log(
-          `⚠️ [Engineer Node][${state.ticketId}] Import mismatch detected for ${filePath}. Retrying internally... Error: ${importError}`,
-        );
-      } else {
-        console.warn(
-          `⚠️ [Engineer Node][${state.ticketId}] Import mismatch persists after retry for ${filePath}. Proceeding.`,
-        );
-      }
-    }
+  // Merge parallel results into generatedCode and aggregate token usage
+  for (const { filePath, content, usage } of fileResults) {
+    totalTokenUsage.prompt += usage.prompt;
+    totalTokenUsage.completion += usage.completion;
+    totalTokenUsage.total += usage.total;
 
-    console.log(
-      `[Engineer Node][${state.ticketId}] Generated ${content.length} chars for ${filePath}`,
-    );
-    console.log(
-      `[Engineer Node][${state.ticketId}] Preview:\n${content.substring(0, 200)}...`,
-    );
-
-    // Replace existing entry or append
     const existingIndex = generatedCode.findIndex(
       (f) => f.filePath === filePath,
     );
@@ -234,9 +339,9 @@ ${(executionPlan.filesToModify || []).join("\n")}
     }
   }
 
-  // Record current validation errors in history for future retries
+  // Accumulate error history (capped at last 3 rounds)
   const newHistory = [
-    ...(errorAttemptHistory || []),
+    ...recentErrorHistory,
     ...(needsRevision && (validationErrors || []).length > 0
       ? [validationErrors!]
       : []),
@@ -254,6 +359,8 @@ ${(executionPlan.filesToModify || []).join("\n")}
     roundCount: nextRound,
     errorAttemptHistory: newHistory,
     validationCrashCount: 0,
+    // Clear filesNeedingRevision so outer validationNode does a full check
+    filesNeedingRevision: [],
     metrics: {
       nodeExecutionTimes: {
         [`frontendEngineerNode_r${nextRound}`]: duration,
@@ -261,8 +368,8 @@ ${(executionPlan.filesToModify || []).join("\n")}
       nodeTokenUsage: {
         [`frontendEngineerNode_r${nextRound}`]: totalTokenUsage,
       },
-      totalFilesGenerated: executionPlan.newFilesToCreate?.length || 0,
-      totalFilesModified: executionPlan.filesToModify?.length || 0,
+      totalFilesGenerated: executionPlan?.newFilesToCreate?.length || 0,
+      totalFilesModified: executionPlan?.filesToModify?.length || 0,
       totalRounds: nextRound,
       nodeCallCounts: {
         frontendEngineerNode: 1,

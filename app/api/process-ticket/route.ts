@@ -72,38 +72,10 @@ export async function POST(req: NextRequest) {
       { recursionLimit: 100 },
     );
 
-    const { executionPlan, generatedCode, metrics } = finalState;
+    const { generatedCode, metrics } = finalState;
 
-    const pr = await github.processChangesAndCreatePR(
-      targetOwner,
-      targetRepo,
-      ticketId,
-      summary,
-      generatedCode,
-      executionPlan || { featureScope: "", implementationInstructions: "" },
-      finalState.ticketClassification?.type || "feature",
-      finalState.ticketClassification?.branchSlug,
-      finalState.ticketClassification?.commitMessage,
-    );
-
-    // Update Jira Estimates
-    // Priority and Story Points now come from Triage (TicketClassification), not PM (ExecutionPlan)
-    const { ticketClassification } = finalState;
-    if (
-      ticketClassification?.priority &&
-      ticketClassification?.storyPoints !== undefined
-    ) {
-      // Set cache to prevent loop when this update triggers a webhook
-      await setCached(`agent_update:${ticketId}`, "true", 60);
-
-      await jira.updateTicketMetadata(ticketId, {
-        priority: ticketClassification.priority,
-        storyPoints: ticketClassification.storyPoints,
-      });
-    }
-
-    // Update Jira Status and Link PR
-    await jira.linkPRAndTransitionTicket(ticketId, pr.html_url, "In Review");
+    // PR creation and Jira updates are now handled within the graph nodes
+    const prUrl = finalState.prUrl;
 
     // --- Performance Logging ---
     const endTime = Date.now();
@@ -174,7 +146,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       ticketId,
-      prUrl: pr.html_url,
+      prUrl: prUrl,
     });
   } catch (error: any) {
     console.error("Error processing ticket:", error);

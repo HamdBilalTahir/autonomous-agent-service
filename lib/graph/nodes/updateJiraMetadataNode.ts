@@ -14,14 +14,14 @@ export async function updateJiraMetadataNode(state: typeof AgentState.State) {
     console.warn(
       `[Update Jira Node][${ticketId}] No ticket ID found in state. Available keys: ${Object.keys(state).join(", ")}`,
     );
-    return {};
+    return { jiraMetadataUpdated: true };
   }
 
   if (!ticketClassification) {
     console.warn(
       `[Update Jira Node][${ticketId}] No classification found in state. Skipping update.`,
     );
-    return {};
+    return { jiraMetadataUpdated: true };
   }
 
   const { priority, storyPoints } = ticketClassification;
@@ -30,7 +30,7 @@ export async function updateJiraMetadataNode(state: typeof AgentState.State) {
     console.log(
       `[Update Jira Node][${ticketId}] No priority or story points to update. Skipping.`,
     );
-    return {};
+    return { jiraMetadataUpdated: true };
   }
 
   console.log(
@@ -54,9 +54,14 @@ export async function updateJiraMetadataNode(state: typeof AgentState.State) {
       storyPoints,
     });
 
-    console.log(`[Update Jira Node][${ticketId}] Successfully updated Jira metadata.`);
+    console.log(
+      `[Update Jira Node][${ticketId}] Successfully updated Jira metadata.`,
+    );
   } catch (error) {
-    console.error(`[Update Jira Node][${ticketId}] Failed to update Jira metadata:`, error);
+    console.error(
+      `[Update Jira Node][${ticketId}] Failed to update Jira metadata:`,
+      error,
+    );
     // We don't want to fail the whole workflow if Jira update fails, just log it.
   }
 
@@ -64,6 +69,7 @@ export async function updateJiraMetadataNode(state: typeof AgentState.State) {
   console.log(`⏱️ [Update Jira Node][${ticketId}] Completed in ${duration}ms`);
 
   return {
+    jiraMetadataUpdated: true,
     metrics: {
       nodeExecutionTimes: {
         updateJiraMetadataNode: duration,

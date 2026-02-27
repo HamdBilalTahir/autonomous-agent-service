@@ -1,59 +1,41 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { AgentState } from "../state";
 import { PM_SYSTEM_PROMPT, getPMUserPrompt } from "../prompts/pmPrompts";
-import { ExecutionPlanSchema } from "../schema";
+import { FeatureListSchema } from "../schema";
 import { createTokenUsageCallback } from "../metrics-utils";
 
 /**
  * The Product Manager (PM) Agent node.
  * Responsibilities:
- * 1. Review the Jira ticket and codebase structure.
- * 2. Decide the architecture (files to create/modify).
- * 3. Output a strict execution plan.
+ * 1. Review the Jira ticket.
+ * 2. Extract requirements into a feature list.
  */
 export async function pmNode(state: typeof AgentState.State) {
   const startTime = Date.now();
-  const { ticketSummary, ticketDescription, codebaseTree } = state;
+  const { ticketSummary, ticketDescription } = state;
 
   console.log(
     `\n🧠 [PM Node] Starting analysis for ticket (ID: ${state.ticketId}):`,
     state.ticketSummary,
   );
 
-  // Initialize the Gemini model
+  // Initialize the Gemini model (using Flash as requested)
   const model = new ChatGoogleGenerativeAI({
-    model: process.env.GEMINI_MODEL || "gemini-1.5-pro",
+    model: "gemini-3-flash-preview",
     apiKey: process.env.GEMINI_API_KEY,
-    temperature: 0, // Low temperature for deterministic planning
+    temperature: 0,
   });
 
   // Create a structured output model
-  const structuredModel = model.withStructuredOutput(ExecutionPlanSchema, {
-    name: "create_execution_plan",
+  const structuredModel = model.withStructuredOutput(FeatureListSchema, {
+    name: "extract_feature_list",
   });
 
   // System prompt
   const systemPrompt = PM_SYSTEM_PROMPT;
 
-  // Format architecture profile for the prompt
-  const profileString = state.architectureProfile
-    ? `ARCHITECTURE PROFILE:
-- Next.js: ${state.architectureProfile.nextJsVersion} (${state.architectureProfile.configStyle})
-- Tailwind: ${state.architectureProfile.tailwindVersion}
-- Styling: ${state.architectureProfile.stylingApproach}
-- Components: ${state.architectureProfile.componentPatterns.join(", ")}
-- State Management: ${state.architectureProfile.stateManagement.join(", ")}
-- API Patterns: ${state.architectureProfile.apiPatterns.join(", ")}
-- Fonts: ${state.architectureProfile.fonts.join(", ")}`
-    : state.projectContext; // Fallback
-
-  // User prompt with context
-  const userPrompt = getPMUserPrompt(
-    ticketSummary,
-    ticketDescription,
-    codebaseTree,
-    profileString,
-  );
+  // User prompt
+  const userPrompt = getPMUserPrompt(ticketSummary, ticketDescription);
 
   console.log(
     `[PM Node][${state.ticketId}] Sending Prompt to LLM:`,
@@ -63,7 +45,7 @@ export async function pmNode(state: typeof AgentState.State) {
   let tokenUsage = { prompt: 0, completion: 0, total: 0 };
   const TokenHandler = createTokenUsageCallback(tokenUsage);
 
-  // Generate the execution plan
+  // Generate the feature list
   const result = await structuredModel.invoke(
     [
       ["system", systemPrompt],
@@ -74,35 +56,17 @@ export async function pmNode(state: typeof AgentState.State) {
     },
   );
 
-  console.log(`✅ [PM Node][${state.ticketId}] Execution Plan Generated:`);
+  console.log(`✅ [PM Node][${state.ticketId}] Feature List Generated:`);
   console.log(`   Scope: ${result.featureScope}`);
-  console.log(
-    `   Files to Create: ${result.newFilesToCreate?.join(", ") || "None"}`,
-  );
-  console.log(
-    `   Files to Modify: ${result.filesToModify?.join(", ") || "None"}`,
-  );
-  console.log(
-    `   Instructions (preview): ${result.implementationInstructions.substring(0, 200)}...`,
-  );
+  console.log(`   Features: ${result.featureList.length} items`);
+  result.featureList.forEach((f) => console.log(`     - ${f}`));
 
   const duration = Date.now() - startTime;
   console.log(`⏱️ [PM Node][${state.ticketId}] Completed in ${duration}ms`);
 
-  // Generate the execution plan summary for state persistence (The "Map" for Engineer)
-  const planSummary = (result.newFilesToCreate || [])
-    .map((f) => `- NEW FILE: ${f}`)
-    .concat((result.filesToModify || []).map((f) => `- MODIFY: ${f}`))
-    .join("\n");
-
-  const implementationSummary = `STRATEGY: ${result.implementationInstructions}`;
-
-  const fullExecutionPlan = `${planSummary}\n\n${implementationSummary}`;
-
   // Return the updated state
   return {
-    executionPlan: result,
-    fullExecutionPlan,
+    featureList: result,
     metrics: {
       nodeExecutionTimes: {
         pmNode: duration,

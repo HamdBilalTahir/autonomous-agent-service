@@ -127,55 +127,73 @@ export async function POST(req: NextRequest) {
       );
       console.timeEnd("GraphExecution");
 
-      const { executionPlan, generatedCode } = finalState;
+      const { metrics } = finalState;
       console.log("[Webhook] Graph execution completed.");
 
-      if (!generatedCode || generatedCode.length === 0) {
-        console.log("[Webhook] No code generated.");
-        await jira.addComment(
-          ticketId,
-          "AI Analysis completed but no code was generated.",
-        );
-        return NextResponse.json({
-          status: "processed",
-          message: "No code generated",
-        });
-      }
+      // --- Performance Logging ---
+      const endTime = Date.now();
+      const totalDuration = (endTime - (metrics?.startTime || endTime)) / 1000;
 
-      const pr = await github.processChangesAndCreatePR(
-        targetOwner,
-        targetRepo,
-        ticketId,
-        summary,
-        generatedCode,
-        executionPlan || { featureScope: "", implementationInstructions: "" },
+      console.log(`\n📊 Workflow Performance Report`);
+      console.log(`--------------------------------`);
+      console.log(`Ticket: ${ticketId} (${summary})`);
+      console.log(`Total Duration: ${totalDuration.toFixed(2)}s`);
+      console.log(`--------------------------------`);
+
+      const tableData = Object.entries(metrics?.nodeCallCounts || {}).map(
+        ([nodeName, count]) => {
+          let duration = 0;
+          let tokenUsage = { prompt: 0, completion: 0, total: 0 };
+
+          if (metrics?.nodeExecutionTimes?.[nodeName]) {
+            duration += metrics.nodeExecutionTimes[nodeName];
+          }
+          if (metrics?.nodeTokenUsage?.[nodeName]) {
+            const usage = metrics.nodeTokenUsage[nodeName];
+            tokenUsage.prompt += usage.prompt;
+            tokenUsage.completion += usage.completion;
+            tokenUsage.total += usage.total;
+          }
+
+          Object.keys(metrics?.nodeExecutionTimes || {}).forEach((key) => {
+            if (key.startsWith(`${nodeName}_`)) {
+              duration += metrics?.nodeExecutionTimes[key] || 0;
+            }
+          });
+          Object.keys(metrics?.nodeTokenUsage || {}).forEach((key) => {
+            if (key.startsWith(`${nodeName}_`)) {
+              const usage = metrics?.nodeTokenUsage[key];
+              if (usage) {
+                tokenUsage.prompt += usage.prompt;
+                tokenUsage.completion += usage.completion;
+                tokenUsage.total += usage.total;
+              }
+            }
+          });
+
+          return {
+            Node: nodeName,
+            Calls: count,
+            "Duration (s)": (duration / 1000).toFixed(2),
+            "Input Tokens": tokenUsage.prompt,
+            "Output Tokens": tokenUsage.completion,
+            "Total Tokens": tokenUsage.total,
+          };
+        },
       );
 
-      console.log(`[Webhook] PR created: ${pr.html_url}`);
+      console.table(tableData);
 
-      // Update Jira Estimates
-      // Priority and Story Points now come from Triage (TicketClassification), not PM (ExecutionPlan)
-      const { ticketClassification } = finalState;
-      if (
-        ticketClassification?.priority &&
-        ticketClassification?.storyPoints !== undefined
-      ) {
-        // Refresh agent update flag before metadata update
-        await setCached(`agent_update:${ticketId}`, "true", 60);
-
-        await jira.updateTicketMetadata(ticketId, {
-          priority: ticketClassification.priority,
-          storyPoints: ticketClassification.storyPoints,
-        });
-      }
-
-      // Update Jira Status and Link PR
-      await jira.linkPRAndTransitionTicket(ticketId, pr.html_url, "In Review");
+      console.log(`\n📂 Output:`);
+      console.log(`  - Validation Retries: ${metrics?.validationRetries || 0}`);
+      console.log(`  - Total Rounds: ${metrics?.totalRounds || 0}`);
+      console.log(`--------------------------------\n`);
+      // ---------------------------
 
       return NextResponse.json({
         status: "success",
         ticketId,
-        prUrl: pr.html_url,
+        prUrl: finalState.prUrl,
       });
     } finally {
       // Clear processing lock

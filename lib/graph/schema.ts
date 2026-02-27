@@ -1,5 +1,20 @@
 import { z } from "zod";
 
+export const FeatureListSchema = z.object({
+  featureScope: z
+    .string()
+    .describe(
+      "Briefly explain if this requires new routes, modifying existing pages, or just isolated components based on the Next.js App Router structure.",
+    ),
+  featureList: z
+    .array(z.string())
+    .describe(
+      "A simple, bulleted list of features the user wants (e.g., 'Add a bar chart', 'Add Today filter').",
+    ),
+});
+
+export type FeatureList = z.infer<typeof FeatureListSchema>;
+
 export const ExecutionPlanSchema = z.object({
   featureScope: z
     .string()
@@ -19,7 +34,12 @@ export const ExecutionPlanSchema = z.object({
   implementationInstructions: z
     .string()
     .describe(
-      "Highly detailed, step-by-step technical instructions for the frontend engineer. Include the logic, required UI elements, and Tailwind structure. Do not write code. Format as a markdown list.",
+      "Highly detailed, step-by-step technical instructions for the frontend engineer. Include the logic, required UI elements, and Tailwind structure. Do not write code. Format as a markdown list. MUST include exact TypeScript interfaces and prop names.",
+    ),
+  validationChecklist: z
+    .array(z.string())
+    .describe(
+      "List of specific rules for the validation agent to check (e.g., 'must use ActivityEvent interface').",
     ),
 });
 
@@ -27,24 +47,63 @@ export const ExecutionPlanSchema = z.object({
 export type ExecutionPlan = z.infer<typeof ExecutionPlanSchema>;
 
 export const ArchitectureProfileSchema = z.object({
-  nextJsVersion: z.string().describe("Detected Next.js version."),
+  language: z
+    .string()
+    .describe(
+      "The primary programming language (e.g., TypeScript, JavaScript, Python, Go).",
+    ),
+  framework: z
+    .string()
+    .describe(
+      "The primary web framework (e.g., Next.js, React, FastAPI, Django, Express).",
+    ),
+  database: z
+    .string()
+    .describe(
+      "Detected database or ORM (e.g., Prisma, Drizzle, SQLAlchemy, Django ORM).",
+    ),
+  uiLibrary: z
+    .string()
+    .describe(
+      "Primary UI/Component library (e.g., Tailwind, MUI, Bootstrap, Shadcn).",
+    ),
+  stylingStrategy: z
+    .string()
+    .describe(
+      "Specific styling approach (e.g., Tailwind v3, CSS Modules, Styled Components).",
+    ),
+  theme: z
+    .object({
+      colors: z
+        .string()
+        .describe("Dominant color palette or theme system detected."),
+      spacing: z
+        .string()
+        .describe("Spacing scale used (e.g., 4px base, rems)."),
+      borderRadius: z.string().describe("Border radius conventions."),
+    })
+    .describe("Visual design system details."),
+  layout: z
+    .object({
+      maxWidth: z.string().describe("Standard max-width for containers."),
+      gridSystem: z.string().describe("Grid system or layout approach."),
+    })
+    .describe("Layout structure details."),
+  fonts: z
+    .array(z.string())
+    .describe("List of used fonts (e.g., Inter, Roboto)."),
   configStyle: z
     .string()
-    .describe("Next.js configuration format (e.g., next.config.js)."),
-  tailwindVersion: z.string().describe("Detected Tailwind CSS version."),
-  fonts: z.array(z.string()).describe("List of available/configured fonts."),
+    .describe("Configuration format (e.g., next.config.js, pyproject.toml)."),
   componentPatterns: z
     .array(z.string())
-    .describe("Identified component patterns (e.g., atomic, feature-based)."),
+    .describe("Identified component/structure patterns."),
   stateManagement: z
     .array(z.string())
     .describe("State management libraries or patterns used."),
   apiPatterns: z
     .array(z.string())
-    .describe("API route patterns (e.g., app/api, pages/api)."),
-  stylingApproach: z
-    .string()
-    .describe("Primary styling approach (e.g., Tailwind, CSS Modules)."),
+    .describe("API route patterns (e.g., app/api, routers/)."),
 });
 
 export type ArchitectureProfile = z.infer<typeof ArchitectureProfileSchema>;
@@ -152,3 +211,10 @@ export const ValidationSchema = z.object({
 });
 
 export type ValidationResult = z.infer<typeof ValidationSchema>;
+
+export const SurgicalContextSchema = z.object({
+  failingFilePaths: z.array(z.string()),
+  errorLogs: z.array(z.string()),
+});
+
+export type SurgicalContext = z.infer<typeof SurgicalContextSchema>;

@@ -69,12 +69,37 @@ Analyze the feature requirements and current architecture. Provide comprehensive
 
 Create specifications that will result in components matching the quality and sophistication of products like Linear's project management interface, Stripe's dashboard clarity, and Figma's interaction refinement.`;
 
+export const DESIGN_SURGICAL_SYSTEM_PROMPT = `You are in Surgical Design Mode.
+Your ONLY goal is to provide design specifications for the specific components being fixed in the Surgical Plan.
+
+Do NOT reinvent the global design system.
+Use existing styles and tokens.
+Focus on the specific UI elements related to the fix.
+`;
+
 export function getDesignUserPrompt(
   ticketSummary: string,
   ticketDescription: string,
   architectureProfile: string,
   executionPlan: string,
+  surgicalContext?: { failingFilePaths: string[]; errorLogs: string[] } | null,
 ) {
+  if (surgicalContext) {
+    return `SURGICAL FIX MODE
+
+TICKET SUMMARY: ${ticketSummary}
+
+FAILING FILES:
+${surgicalContext.failingFilePaths.join("\n")}
+
+PM EXECUTION PLAN (SURGICAL):
+${executionPlan}
+
+Based on the surgical plan, provide design specifications ONLY for the components being fixed.
+Ensure they match the existing architecture profile.
+`;
+  }
+
   return `TICKET SUMMARY: ${ticketSummary}
 
 TICKET DESCRIPTION:

@@ -1,14 +1,16 @@
-import { ArchitectureProfile } from "../schema";
+import { ArchitectureProfile, ExecutionPlan } from "../schema";
 
 export function getValidationSystemPrompt(
   projectContext: string,
   architectureProfile?: ArchitectureProfile,
+  executionPlan?: ExecutionPlan,
 ): string {
   const contextString = architectureProfile
     ? `ARCHITECTURE PROFILE:
-- Next.js: ${architectureProfile.nextJsVersion}
-- Tailwind: ${architectureProfile.tailwindVersion}
-- Styling: ${architectureProfile.stylingApproach}
+- Framework: ${architectureProfile.framework}
+- UI Library: ${architectureProfile.uiLibrary}
+- Styling: ${architectureProfile.stylingStrategy}
+- Theme: Colors=${architectureProfile.theme?.colors}, Spacing=${architectureProfile.theme?.spacing}
 - Components: ${architectureProfile.componentPatterns.join(", ")}
 - API Patterns: ${architectureProfile.apiPatterns.join(", ")}
 - Fonts: ${architectureProfile.fonts.join(", ")}`
@@ -24,11 +26,20 @@ Check for:
 4. Compliance with Project Context:
 ${contextString}
 
+TECHNICAL CONTRACT (STRICT ENFORCEMENT):
+${executionPlan?.implementationInstructions || "No strict contract provided."}
+
+VALIDATION CHECKLIST:
+${executionPlan?.validationChecklist?.map((item) => `- ${item}`).join("\n") || "No specific checklist."}
+
 CRITICAL RULES:
+- Verify code matches the TECHNICAL CONTRACT (interfaces, props, file paths).
 - PRIORITIZE COMPILATION ERRORS (criticalErrors) over style issues (warnings).
-- If the code imports a component that is not defined in the code provided or likely to exist, flag it as a criticalError.
+- NEVER flag @/ path aliases or relative (./  ../) imports as criticalErrors — those project files exist and are outside your visibility scope. If uncertain about a local import, use a warning at most.
+- Only flag an npm package import as critical if you are CERTAIN it is not a standard Next.js/React dependency and is clearly absent from any typical package.json.
 - If the code uses syntax incompatible with the project's Next.js or Tailwind version, flag it as a criticalError.
 - Be strict but fair. Minor style nits belong in warnings, compilation breakers are criticalErrors.
+- CONFIDENCE GATE: Only add an entry to criticalErrors if you are >95% certain that running tsc --noEmit on this file would produce a TypeScript error. If you are uncertain, put it in warnings instead.
 
 SOLUTION-ORIENTED FEEDBACK REQUIRED:
 When providing a "REPAIR HINT", do not just say "Fix import". You MUST provide the actionable solution:

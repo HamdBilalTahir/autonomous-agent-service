@@ -9,7 +9,14 @@ What It Does
 📋 Updates project status - Keeps Jira tickets synchronized
 
 # How It Works
-Jira Ticket Created → Agent Analyzes Codebase → AI Generates Code → Creates PR → Updates Jira
+Jira Ticket Created → Analysis & Triage → [Fast Track OR Full Planning] → Sync & Execute → Automated Testing → PR Creation
+
+### Visualize Workflow
+
+To generate a visual representation of the current agent workflow graph:
+```bash
+npx ts-node scripts/visualize_graph.ts
+```
 
 Webhook Trigger: New Jira ticket automatically triggers the agent
 Code Analysis: Agent studies your existing codebase patterns

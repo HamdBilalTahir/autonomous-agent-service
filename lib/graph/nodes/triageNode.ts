@@ -8,7 +8,6 @@ import {
   getFastPlannerUserPrompt,
 } from "../prompts/triagePrompts";
 import { createTokenUsageCallback } from "../metrics-utils";
-
 /**
  * The Triage Agent node.
  * Responsibilities:
@@ -26,7 +25,7 @@ export async function triageNode(state: typeof AgentState.State) {
   );
 
   const model = new ChatGoogleGenerativeAI({
-    model: process.env.GEMINI_MODEL || "gemini-1.5-pro",
+    model: "gemini-3-flash-preview",
     apiKey: process.env.GEMINI_API_KEY,
     temperature: 0,
   });

@@ -1,16 +1,20 @@
 import { Annotation } from "@langchain/langgraph";
 import {
   ExecutionPlan,
+  FeatureList,
   ArchitectureProfile,
   DesignSpecifications,
   TicketClassification,
+  SurgicalContext,
 } from "./schema";
 
 export type {
   ExecutionPlan,
+  FeatureList,
   ArchitectureProfile,
   DesignSpecifications,
   TicketClassification,
+  SurgicalContext,
 } from "./schema";
 
 /**
@@ -76,7 +80,14 @@ export const AgentState = Annotation.Root({
   }),
 
   /**
-   * The plan drafted by the Product Manager agent.
+   * The feature list extracted by the Product Manager agent.
+   */
+  featureList: Annotation<FeatureList>({
+    reducer: (x, y) => y ?? x,
+  }),
+
+  /**
+   * The technical plan drafted by the Engineering Manager agent.
    */
   executionPlan: Annotation<ExecutionPlan>({
     reducer: (x, y) => y ?? x,
@@ -154,6 +165,22 @@ export const AgentState = Annotation.Root({
   }),
 
   /**
+   * Context for surgical fixes (round 5+ critical errors).
+   * Contains failing files and error logs.
+   */
+  surgicalContext: Annotation<SurgicalContext | null>({
+    reducer: (x, y) => y ?? x,
+  }),
+
+  /**
+   * Snapshot of generated files before entering surgical mode.
+   * Used to restore non-failing files during merge.
+   */
+  checkpointFiles: Annotation<GeneratedFile[]>({
+    reducer: (x, y) => y ?? x,
+  }),
+
+  /**
    * The number of retries within the current round (0–3). Resets to 0 on each new round.
    */
   retryCount: Annotation<number>({
@@ -186,6 +213,29 @@ export const AgentState = Annotation.Root({
    * Whether the validation node experienced a technical failure (crash/invalid output).
    */
   validationCrashed: Annotation<boolean>({
+    reducer: (x, y) => y ?? x,
+  }),
+
+  /**
+   * File paths that have validation errors/warnings and need to be regenerated.
+   * Set explicitly by the validation node — engineer uses this directly instead of parsing error strings.
+   */
+  filesNeedingRevision: Annotation<string[]>({
+    reducer: (x, y) => y ?? x,
+  }),
+
+  /**
+   * Flag indicating if Jira metadata has been successfully updated.
+   * Used for synchronizing the parallel Admin branch.
+   */
+  jiraMetadataUpdated: Annotation<boolean>({
+    reducer: (x, y) => y ?? x,
+  }),
+
+  /**
+   * The URL of the created Pull Request.
+   */
+  prUrl: Annotation<string>({
     reducer: (x, y) => y ?? x,
   }),
 
