@@ -8,6 +8,7 @@ import {
   getFastPlannerUserPrompt,
 } from "../prompts/triagePrompts";
 import { extractTokenUsage } from "../metrics-utils";
+import { setPipelineState } from "../../pipeline-state";
 /**
  * The Triage Agent node.
  * Responsibilities:
@@ -17,6 +18,7 @@ import { extractTokenUsage } from "../metrics-utils";
  */
 export async function triageNode(state: typeof AgentState.State) {
   const startTime = Date.now();
+  await setPipelineState(state.ticketId, state.ticketSummary, "triageNode");
   const { ticketSummary, ticketDescription, codebaseTree } = state;
 
   console.log(

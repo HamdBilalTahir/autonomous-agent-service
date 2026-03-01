@@ -7,6 +7,7 @@ import {
 } from "../prompts/designPrompts";
 import { DesignSpecificationsSchema } from "../schema";
 import { extractTokenUsage } from "../metrics-utils";
+import { setPipelineState } from "../../pipeline-state";
 
 /**
  * The Design Agent node.
@@ -16,6 +17,7 @@ import { extractTokenUsage } from "../metrics-utils";
  */
 export async function designNode(state: typeof AgentState.State) {
   const startTime = Date.now();
+  await setPipelineState(state.ticketId, state.ticketSummary, "designNode");
   const {
     ticketSummary,
     ticketDescription,

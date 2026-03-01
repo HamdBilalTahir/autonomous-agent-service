@@ -7,6 +7,7 @@ import {
 } from "../prompts/emPrompts";
 import { ExecutionPlanSchema } from "../schema";
 import { extractTokenUsage } from "../metrics-utils";
+import { setPipelineState } from "../../pipeline-state";
 
 /**
  * The Engineering Manager (EM) Agent node.
@@ -17,6 +18,7 @@ import { extractTokenUsage } from "../metrics-utils";
  */
 export async function emNode(state: typeof AgentState.State) {
   const startTime = Date.now();
+  await setPipelineState(state.ticketId, state.ticketSummary, "emNode");
   const { featureList, architectureProfile, codebaseTree, surgicalContext } =
     state;
 

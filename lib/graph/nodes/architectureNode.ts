@@ -9,6 +9,7 @@ import { analyzeProjectContext, getInstalledPackages } from "../../project-conte
 import { getCached, setCached } from "../../cache";
 import { createHash } from "crypto";
 import { extractTokenUsage } from "../metrics-utils";
+import { setPipelineState } from "../../pipeline-state";
 
 /**
  * The Architecture Understanding Agent node.
@@ -19,6 +20,7 @@ import { extractTokenUsage } from "../metrics-utils";
  */
 export async function architectureNode(state: typeof AgentState.State) {
   const startTime = Date.now();
+  await setPipelineState(state.ticketId, state.ticketSummary, "architectureNode");
   console.log(
     `\n🏛️ [Architecture Node][${state.ticketId}] Analyzing project structure...`,
   );

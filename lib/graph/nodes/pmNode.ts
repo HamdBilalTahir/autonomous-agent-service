@@ -3,6 +3,7 @@ import { AgentState } from "../state";
 import { PM_SYSTEM_PROMPT, getPMUserPrompt } from "../prompts/pmPrompts";
 import { FeatureListSchema } from "../schema";
 import { extractTokenUsage } from "../metrics-utils";
+import { setPipelineState } from "../../pipeline-state";
 
 /**
  * The Product Manager (PM) Agent node.
@@ -12,6 +13,7 @@ import { extractTokenUsage } from "../metrics-utils";
  */
 export async function pmNode(state: typeof AgentState.State) {
   const startTime = Date.now();
+  await setPipelineState(state.ticketId, state.ticketSummary, "pmNode");
   const { ticketSummary, ticketDescription, architectureProfile, codebaseTree } = state;
 
   console.log(

@@ -3,6 +3,7 @@ import { AgentState, GeneratedFile } from "../state";
 import { ValidationSchema } from "../schema";
 import { getValidationSystemPrompt } from "../prompts/validationPrompts";
 import { extractTokenUsage } from "../metrics-utils";
+import { setPipelineState } from "../../pipeline-state";
 import { withConcurrency } from "../concurrency";
 import { checkCrossFileImports, checkPackageImports } from "../ts-cross-file-check";
 
@@ -39,6 +40,7 @@ const WARNING_LENIENCY_ROUND = 5;
  */
 export async function validationNode(state: typeof AgentState.State) {
   const startTime = Date.now();
+  await setPipelineState(state.ticketId, state.ticketSummary, "validationNode");
   const {
     generatedCode,
     projectContext,

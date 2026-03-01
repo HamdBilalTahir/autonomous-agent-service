@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --background: 255 255 255;
+    --foreground: 15 23 42;
+  }
+
+  body {
+    @apply bg-[#F5EBFA] text-slate-900 antialiased;
+    font-feature-settings: "ss01", "ss02", "cv01", "cv02";
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold tracking-tight text-[#49225B];
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-lg bg-[#6E3482] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#49225B] focus:outline-none focus:ring-2 focus:ring-[#6E3482] focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none;
+  }
+  
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-lg bg-[#E7DBEF] px-4 py-2 text-sm font-medium text-[#49225B] transition-colors hover:bg-[#A56ABD] hover:text-white focus:outline-none focus:ring-2 focus:ring-[#6E3482] focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .card {
+    @apply rounded-xl border border-[#E7DBEF] bg-white text-slate-950 shadow-[0_2px_10px_rgba(73,34,91,0.05)];
+  }
+  
+  .input-field {
+    @apply flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6E3482] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+}

@@ -1,5 +1,6 @@
 import { AgentState } from "../state";
 import { GitHubService } from "../../github";
+import { setPipelineState } from "../../pipeline-state";
 
 /**
  * Creates a Pull Request.
@@ -7,6 +8,7 @@ import { GitHubService } from "../../github";
  */
 export async function createPrNode(state: typeof AgentState.State) {
   const startTime = Date.now();
+  await setPipelineState(state.ticketId, state.ticketSummary, "createPrNode");
   const {
     ticketId,
     ticketSummary,

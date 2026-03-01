@@ -38,7 +38,11 @@ function generateFileCommitMessage(filePath: string): string {
   } else if (compIdx !== -1 && parts[compIdx + 1]) {
     // Use the subfolder under components (e.g. components/onboarding → onboarding)
     scope = parts[compIdx + 1].toLowerCase();
-  } else if (appIdx !== -1 && parts[appIdx + 1] && parts[appIdx + 1] !== "api") {
+  } else if (
+    appIdx !== -1 &&
+    parts[appIdx + 1] &&
+    parts[appIdx + 1] !== "api"
+  ) {
     scope = parts[appIdx + 1].toLowerCase();
   } else if (libIdx !== -1) {
     scope = "lib";
@@ -382,6 +386,16 @@ export class GitHubService {
         }));
       }
       return [];
+    });
+  }
+
+  async listBranches(owner: string, repo: string) {
+    return withRetry(async () => {
+      const { data } = await this.octokit.repos.listBranches({
+        owner,
+        repo,
+      });
+      return data.map((branch) => branch.name);
     });
   }
 

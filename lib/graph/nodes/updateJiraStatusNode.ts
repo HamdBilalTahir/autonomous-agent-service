@@ -1,5 +1,6 @@
 import { AgentState } from "../state";
 import { JiraService } from "../../jira";
+import { setPipelineState, clearPipelineState } from "../../pipeline-state";
 
 /**
  * Updates Jira Status and adds a comment with the PR link.
@@ -7,6 +8,7 @@ import { JiraService } from "../../jira";
  */
 export async function updateJiraStatusNode(state: typeof AgentState.State) {
   const startTime = Date.now();
+  await setPipelineState(state.ticketId, state.ticketSummary, "updateJiraStatusNode");
   const { ticketId, prUrl } = state;
 
   if (!prUrl) {
@@ -64,6 +66,7 @@ export async function updateJiraStatusNode(state: typeof AgentState.State) {
     await jira.transitionTicket(ticketId, "In Review");
 
     console.log(`✅ [Update Jira Status Node][${ticketId}] Jira updated.`);
+    await clearPipelineState(ticketId);
 
     const duration = Date.now() - startTime;
     console.log(

@@ -7,6 +7,7 @@ import { verifyImports } from "../import-guard";
 import { ExecutionPlanSchema, ValidationSchema, FilePatchSchema } from "../schema";
 import { getValidationSystemPrompt } from "../prompts/validationPrompts";
 import { checkTsSyntax } from "../ts-syntax-check";
+import { setPipelineState } from "../../pipeline-state";
 
 const MAX_FILE_ATTEMPTS = 3;
 const INLINE_VALIDATION_TIMEOUT_MS = 300_000;
@@ -195,6 +196,7 @@ export function createEngineerNode(config: EngineerConfig) {
 
   return async function engineerNode(state: typeof AgentState.State) {
     const startTime = Date.now();
+    await setPipelineState(state.ticketId, state.ticketSummary, "frontendEngineerNode");
     const {
       executionPlan,
       projectContext,

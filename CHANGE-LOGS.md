@@ -1,3 +1,106 @@
+## 🗓️ **2026-03-02**
+
+---
+
+### ✨ Features
+
+---
+
+> ### Story Creator UI — GitHub Repo/Branch Selection + AI Chat for User Stories
+>
+> - **What changed:** Built the full front-end experience for creating Jira user stories through an AI-assisted chat flow:
+>   1. **Repo & Branch Selector** (`app/components/RepoSelector.tsx`): Step 1 of the flow. Fetches the authenticated user's GitHub repositories via `GET /api/user/repos`, lets the user search/filter, then loads the selected repo's branches via `GET /api/repos/[owner]/[repo]/branches`. Confirms the selection and advances to the requirements step.
+>   2. **Requirements gathering chat** (`app/components/RequirementGathering.tsx`): Step 2. A full chat interface pre-seeded with a context-aware greeting (repo + branch name). The user describes their feature in natural language; messages are sent to `POST /api/chat` which returns either a follow-up question or a structured `stories[]` array when enough context has been gathered.
+>   3. **Two-step page layout** (`app/page.tsx`): Step 1 renders a centred card with the `RepoSelector`. On confirmation, the page transitions to Step 2 with an expanded max-width layout housing the `RequirementGathering` component.
+>   4. **Repo selection persistence**: The selected repo and branch are serialised to `localStorage` under `kuai_repo_selection` so the session survives a page refresh.
+> - **Why:** The agent pipeline required a structured Jira ticket as its entry point, but writing detailed user stories by hand is time-consuming and inconsistent. This UI lets users describe a feature conversationally and have the AI turn it into well-formed stories (summary, description, acceptance criteria) ready for Jira creation.
+> - **Files:**
+>   - `app/page.tsx` *(new)*
+>   - `app/components/RepoSelector.tsx` *(new)*
+>   - `app/components/RequirementGathering.tsx` *(new)*
+>   - `app/api/chat/route.ts` *(new)*
+
+---
+
+> ### Repo Context Sidebar + Change Repo Warning
+>
+> - **What changed:** When a repo and branch are selected, the requirements page now shows a sticky left sidebar displaying the active repository and branch. A "Change Repo" button triggers an inline amber confirmation dialog warning the user that their current conversation and stories will be cleared, requiring explicit confirmation before resetting state.
+> - **Why:** Users had no visibility into which repo/branch was active once they moved to the requirements step, and there was no way to switch repos without refreshing the page.
+> - **Files:**
+>   - `app/page.tsx`
+
+---
+
+> ### Review / Edit / Approve Flow Before Ticket Creation
+>
+> - **What changed:** After the AI generates user stories, instead of creating them immediately, the app transitions to a review panel. Each story is shown as a collapsible accordion card with inline editing for the summary (single-line input), description (textarea), and acceptance criteria (add/edit/remove individual items per story). Users can also delete individual stories. A single "Create N Tickets in Jira" button at the bottom submits all approved stories. On completion, a success view lists created ticket keys as clickable Jira links and offers a "Start a new conversation" button to reset.
+> - **Why:** Giving the AI direct create access with no human review step was risky — stories often need minor corrections before being committed to Jira.
+> - **Files:**
+>   - `app/components/RequirementGathering.tsx`
+
+---
+
+> ### Pipeline State Tracking Across Graph Nodes
+>
+> - **What changed:** Added a `lib/pipeline-state.ts` module that writes the current pipeline stage for each active ticket to Redis (TTL 2 hours). Every graph node calls `setPipelineState(ticketId, ticketSummary, nodeName)` at the start of execution, mapping node names to human-readable labels (e.g. `"architectureNode"` → `"Analyzing Architecture"`). `updateJiraStatusNode` calls `clearPipelineState` on completion. `lib/cache.ts` gained a `deleteCached` helper to support cache key removal.
+> - **Why:** Enables the monitor page to show which stage of the pipeline each in-flight ticket is currently in, without modifying the LangGraph orchestration layer.
+> - **Files:**
+>   - `lib/pipeline-state.ts` *(new)*
+>   - `lib/cache.ts`
+>   - `lib/graph/nodes/triageNode.ts`
+>   - `lib/graph/nodes/architectureNode.ts`
+>   - `lib/graph/nodes/pmNode.ts`
+>   - `lib/graph/nodes/designNode.ts`
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/graph/nodes/validationNode.ts`
+>   - `lib/graph/nodes/updateJiraMetadataNode.ts`
+
+---
+
+> ### Ticket Monitor Page (`/monitor`)
+>
+> - **What changed:** Added a `/monitor` route with a live dashboard. "Running" tickets (those with an active pipeline state in Redis) appear in a top section with a pulsing blue indicator, the current pipeline node label, and a live elapsed timer (ticks every second). All other AI-generated tickets appear in a table with status badges, last-updated timestamps, PR links, and direct Jira links. The page auto-refreshes every 15 seconds. A new `GET /api/tickets` endpoint powers it — querying Jira for all `ai-agent`/`ai-generated` labelled tickets, enriching each with Redis pipeline state and a PR URL extracted from Jira comment links.
+> - **Why:** There was no visibility into tickets after they were created — users couldn't tell if the agent had picked them up, which stage they were at, or whether a PR had been opened.
+> - **Files:**
+>   - `app/monitor/page.tsx` *(new)*
+>   - `app/api/tickets/route.ts` *(new)*
+
+---
+
+### 🔧 Improvements
+
+---
+
+> ### Chat UI — Expandable Textarea, Viewport-Locked Layout, Fixed Message Colors
+>
+> - **What changed:** Three UI fixes to the requirements chat:
+>   1. **Expandable textarea**: The chat input auto-resizes as the user types (up to 160px), then shows an internal scrollbar. Uses a `textareaRef` with `el.style.height = Math.min(el.scrollHeight, 160) + 'px'` and resets on send.
+>   2. **Viewport-locked layout**: Changed `<main>` from `min-h-screen` to `h-screen overflow-hidden` with a flex column that propagates height down through `flex-1 min-h-0` at each level. When a repo is selected, the header collapses to a compact one-line bar (logo + Monitor link) so the chat fills the remaining viewport without any page-level scroll. The chat container uses `h-full` instead of `calc(100vh - 260px)`.
+>   3. **Message label colors**: User bubble role labels ("You") were nearly invisible (light purple on dark purple). Fixed with explicit inline styles: `rgba(255,255,255,0.55)` for user labels and `#A56ABD` for assistant labels.
+> - **Why:** The textarea previously caused the browser window to scroll when it grew; the fixed-height chat container was mis-sized so scrolling was broken; message sender labels were illegible.
+> - **Files:**
+>   - `app/page.tsx`
+>   - `app/components/RequirementGathering.tsx`
+
+---
+
+> ### GitHub OAuth — Org Repos, Pagination, Auth Error Recovery, Default Branch
+>
+> - **What changed:** Closed 5 gaps in the GitHub repo/branch selection flow to match Vercel-quality behaviour:
+>   1. **`read:org` scope added** (`app/api/auth/[...nextauth]/route.ts`): The previous scope list (`read:user user:email repo`) did not include `read:org`, so the API couldn't enumerate organisations the user is a member of (only orgs they own).
+>   2. **Org repos visible** (`app/api/user/repos/route.ts`): `listForAuthenticatedUser()` only returns repos owned directly by the user. Now also calls `orgs.listForAuthenticatedUser()` then `repos.listForOrg()` for every org in parallel, merges and deduplicates by `full_name`, and sorts by `updated_at` descending.
+>   3. **Pagination** (repos + branches APIs): Both endpoints now accept a `page` query param (`?page=N`) and return `hasMore: boolean`. RepoSelector shows a "Load more" button at the bottom of each list when `hasMore` is true — no data is silently dropped.
+>   4. **Auth error recovery** (`app/components/RepoSelector.tsx`): API routes now explicitly return 401 for expired tokens. The selector detects 401 vs generic failure and shows an inline "Session expired — Reconnect GitHub" banner with a `signIn('github')` trigger instead of silently showing an empty list.
+>   5. **Default branch highlighted + auto-selected** (branches API + RepoSelector): `GET /api/repos/[owner]/[repo]/branches` now fetches `repos.get()` in parallel and returns `defaultBranch`. RepoSelector displays a `default` badge next to the default branch in the list and auto-selects it when the branch list loads.
+> - **Why:** Users with repos in organisations (not just personal) couldn't see them at all. The 100-item hard cap silently dropped repos for active users. Silent empty lists on token expiry left users confused with no recovery path. Branch selectors that don't highlight the default branch make users guess which branch to target.
+> - **Files:**
+>   - `app/api/auth/[...nextauth]/route.ts`
+>   - `app/api/user/repos/route.ts`
+>   - `app/api/repos/[owner]/[repo]/branches/route.ts`
+>   - `app/components/RepoSelector.tsx`
+
+---
+
 ## 🗓️ **2026-03-01**
 
 ---

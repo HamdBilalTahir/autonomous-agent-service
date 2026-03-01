@@ -51,3 +51,15 @@ export async function setCached(
     console.warn("Redis error:", e);
   }
 }
+
+export async function deleteCached(key: string): Promise<void> {
+  if (!redis) {
+    memoryCache.delete(key);
+    return;
+  }
+  try {
+    await redis.del(key);
+  } catch (e) {
+    console.warn("Redis error:", e);
+  }
+}
