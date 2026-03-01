@@ -2,7 +2,7 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { AgentState } from "../state";
 import { PM_SYSTEM_PROMPT, getPMUserPrompt } from "../prompts/pmPrompts";
 import { FeatureListSchema } from "../schema";
-import { createTokenUsageCallback } from "../metrics-utils";
+import { extractTokenUsage } from "../metrics-utils";
 
 /**
  * The Product Manager (PM) Agent node.
@@ -12,23 +12,23 @@ import { createTokenUsageCallback } from "../metrics-utils";
  */
 export async function pmNode(state: typeof AgentState.State) {
   const startTime = Date.now();
-  const { ticketSummary, ticketDescription, architectureProfile } = state;
+  const { ticketSummary, ticketDescription, architectureProfile, codebaseTree } = state;
 
   console.log(
     `\n🧠 [PM Node] Starting analysis for ticket (ID: ${state.ticketId}):`,
     state.ticketSummary,
   );
 
-  // Initialize the Gemini model (using Flash as requested)
+  // Initialize the Gemini model (using Pro for holistic product reasoning)
   const model = new ChatGoogleGenerativeAI({
-    model: "gemini-3-flash-preview",
+    model: "gemini-3.1-pro-preview",
     apiKey: process.env.GEMINI_API_KEY,
     temperature: 0,
   });
 
-  // Create a structured output model
   const structuredModel = model.withStructuredOutput(FeatureListSchema, {
     name: "extract_feature_list",
+    includeRaw: true,
   });
 
   // System prompt
@@ -39,6 +39,7 @@ export async function pmNode(state: typeof AgentState.State) {
     ticketSummary,
     ticketDescription,
     architectureProfile,
+    codebaseTree,
   );
 
   console.log(
@@ -46,19 +47,13 @@ export async function pmNode(state: typeof AgentState.State) {
     JSON.stringify({ systemPrompt, userPrompt }, null, 2),
   );
 
-  let tokenUsage = { prompt: 0, completion: 0, total: 0 };
-  const TokenHandler = createTokenUsageCallback(tokenUsage);
-
   // Generate the feature list
-  const result = await structuredModel.invoke(
-    [
-      ["system", systemPrompt],
-      ["user", userPrompt],
-    ],
-    {
-      callbacks: [new TokenHandler()],
-    },
-  );
+  const { raw, parsed: result } = await structuredModel.invoke([
+    ["system", systemPrompt],
+    ["user", userPrompt],
+  ]);
+
+  const tokenUsage = extractTokenUsage(raw);
 
   console.log(`✅ [PM Node][${state.ticketId}] Feature List Generated:`);
   console.log(`   Scope: ${result.featureScope}`);

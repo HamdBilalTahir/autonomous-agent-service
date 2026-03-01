@@ -3,11 +3,14 @@ import { graph } from "../../../lib/graph";
 import { JiraService } from "../../../lib/jira";
 import { GitHubService } from "../../../lib/github";
 import { getCached, setCached } from "../../../lib/cache";
-import { calculateLLMCost } from "../../../lib/graph/metrics-utils";
+import { logPerformanceReport } from "../../../lib/graph/metrics-utils";
 
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
+  let ticketId: string | undefined;
+  let summary = "";
+
   try {
     const body = await req.json();
 
@@ -31,11 +34,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const ticketId = body.issue.key;
+    ticketId = body.issue.key;
 
     // Verify ticket still exists (handles deleted tickets)
     try {
-      await jira.getTicket(ticketId);
+      await jira.getTicket(ticketId!);
     } catch (error) {
       console.log(`[Webhook] Ignored ${ticketId}: Ticket not found or deleted`);
       return NextResponse.json({
@@ -44,7 +47,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const summary = body.issue.fields.summary;
+    summary = body.issue.fields.summary;
     const description = body.issue.fields.description || "";
     const status = body.issue.fields.status.name;
     const labels = body.issue.fields.labels || [];
@@ -108,7 +111,7 @@ export async function POST(req: NextRequest) {
 
     try {
       // Transition to In Progress
-      await jira.transitionTicket(ticketId, "In Progress");
+      await jira.transitionTicket(ticketId!, "In Progress");
       const structure = await github.getRepoStructure(targetOwner, targetRepo);
       const codebaseTree = structure.join("\n");
 
@@ -132,74 +135,7 @@ export async function POST(req: NextRequest) {
       console.log("[Webhook] Graph execution completed.");
 
       // --- Performance Logging ---
-      const endTime = Date.now();
-      const totalDuration = (endTime - (metrics?.startTime || endTime)) / 1000;
-
-      console.log(`\n📊 Workflow Performance Report`);
-      console.log(`--------------------------------`);
-      console.log(`Ticket: ${ticketId} (${summary})`);
-      console.log(`Total Duration: ${totalDuration.toFixed(2)}s`);
-      console.log(`--------------------------------`);
-
-      let totalCost = 0;
-
-      const tableData = Object.entries(metrics?.nodeCallCounts || {}).map(
-        ([nodeName, count]) => {
-          let duration = 0;
-          let tokenUsage = { prompt: 0, completion: 0, total: 0 };
-
-          if (metrics?.nodeExecutionTimes?.[nodeName]) {
-            duration += metrics.nodeExecutionTimes[nodeName];
-          }
-          if (metrics?.nodeTokenUsage?.[nodeName]) {
-            const usage = metrics.nodeTokenUsage[nodeName];
-            tokenUsage.prompt += usage.prompt;
-            tokenUsage.completion += usage.completion;
-            tokenUsage.total += usage.total;
-          }
-
-          Object.keys(metrics?.nodeExecutionTimes || {}).forEach((key) => {
-            if (key.startsWith(`${nodeName}_`)) {
-              duration += metrics?.nodeExecutionTimes[key] || 0;
-            }
-          });
-          Object.keys(metrics?.nodeTokenUsage || {}).forEach((key) => {
-            if (key.startsWith(`${nodeName}_`)) {
-              const usage = metrics?.nodeTokenUsage[key];
-              if (usage) {
-                tokenUsage.prompt += usage.prompt;
-                tokenUsage.completion += usage.completion;
-                tokenUsage.total += usage.total;
-              }
-            }
-          });
-
-          const cost = calculateLLMCost(
-            nodeName,
-            tokenUsage.prompt,
-            tokenUsage.completion,
-          );
-          totalCost += cost;
-
-          return {
-            Node: nodeName,
-            Calls: count,
-            "Duration (s)": (duration / 1000).toFixed(2),
-            "Input Tokens": tokenUsage.prompt,
-            "Output Tokens": tokenUsage.completion,
-            "Total Tokens": tokenUsage.total,
-            "Est. Cost ($)": cost.toFixed(4),
-          };
-        },
-      );
-
-      console.table(tableData);
-      console.log(`Total Estimated LLM Cost: $${totalCost.toFixed(4)}`);
-
-      console.log(`\n📂 Output:`);
-      console.log(`  - Validation Retries: ${metrics?.validationRetries || 0}`);
-      console.log(`  - Total Rounds: ${metrics?.totalRounds || 0}`);
-      console.log(`--------------------------------\n`);
+      logPerformanceReport(metrics, ticketId!, summary);
       // ---------------------------
 
       return NextResponse.json({
@@ -214,6 +150,28 @@ export async function POST(req: NextRequest) {
     }
   } catch (error: any) {
     console.error("[Webhook] Error:", error);
+
+    // Attempt rollback: restore ticket status and leave a comment so the issue
+    // is visible in Jira rather than silently stuck "In Progress".
+    if (ticketId) {
+      try {
+        const jira = new JiraService(
+          process.env.JIRA_BASE_URL || "",
+          process.env.JIRA_EMAIL || "",
+          process.env.JIRA_API_TOKEN || "",
+        );
+        await jira.addComment(
+          ticketId,
+          `❌ **Agent Workflow Failed**\n\nError: ${error.message}\n\nPlease check server logs and reset status manually if needed.`,
+        );
+        await jira.transitionTicket(ticketId, "Selected for Development");
+        // Clear the agent_update flag so the ticket can be re-processed after a manual reset
+        await setCached(`agent_update:${ticketId}`, "false", 1);
+      } catch (rollbackError) {
+        console.error("[Webhook] Rollback failed:", rollbackError);
+      }
+    }
+
     return NextResponse.json(
       { status: "error", message: error.message },
       { status: 500 },

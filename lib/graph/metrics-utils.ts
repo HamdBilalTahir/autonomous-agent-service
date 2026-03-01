@@ -120,6 +120,96 @@ const NODE_MODEL_MAPPING: Record<string, "GEMINI_3_1_PRO" | "GEMINI_3_FLASH"> =
     createPrNode: "GEMINI_3_FLASH",
   };
 
+/**
+ * Logs a structured performance report for a completed graph run.
+ * Extracted from both route handlers to eliminate duplication.
+ */
+export function logPerformanceReport(
+  metrics: Record<string, any> | undefined,
+  ticketId: string,
+  summary: string,
+  extra?: { generatedFiles?: number; modifiedFiles?: number },
+): void {
+  const endTime = Date.now();
+  const totalDuration = (endTime - (metrics?.startTime || endTime)) / 1000;
+
+  console.log(`\n📊 Workflow Performance Report`);
+  console.log(`--------------------------------`);
+  console.log(`Ticket: ${ticketId} (${summary})`);
+  console.log(`Total Duration: ${totalDuration.toFixed(2)}s`);
+  console.log(`--------------------------------`);
+
+  let totalCost = 0;
+
+  const tableData = Object.entries(metrics?.nodeCallCounts || {}).map(
+    ([nodeName, count]) => {
+      let duration = 0;
+      let tokenUsage = { prompt: 0, completion: 0, total: 0 };
+
+      if (metrics?.nodeExecutionTimes?.[nodeName]) {
+        duration += metrics.nodeExecutionTimes[nodeName] as number;
+      }
+      if (metrics?.nodeTokenUsage?.[nodeName]) {
+        const usage = metrics.nodeTokenUsage[nodeName] as {
+          prompt: number;
+          completion: number;
+          total: number;
+        };
+        tokenUsage.prompt += usage.prompt;
+        tokenUsage.completion += usage.completion;
+        tokenUsage.total += usage.total;
+      }
+
+      Object.keys(metrics?.nodeExecutionTimes || {}).forEach((key) => {
+        if (key.startsWith(`${nodeName}_`)) {
+          duration += (metrics?.nodeExecutionTimes[key] as number) || 0;
+        }
+      });
+      Object.keys(metrics?.nodeTokenUsage || {}).forEach((key) => {
+        if (key.startsWith(`${nodeName}_`)) {
+          const usage = metrics?.nodeTokenUsage[key] as {
+            prompt: number;
+            completion: number;
+            total: number;
+          } | undefined;
+          if (usage) {
+            tokenUsage.prompt += usage.prompt;
+            tokenUsage.completion += usage.completion;
+            tokenUsage.total += usage.total;
+          }
+        }
+      });
+
+      const cost = calculateLLMCost(nodeName, tokenUsage.prompt, tokenUsage.completion);
+      totalCost += cost;
+
+      return {
+        Node: nodeName,
+        Calls: count,
+        "Duration (s)": (duration / 1000).toFixed(2),
+        "Input Tokens": tokenUsage.prompt,
+        "Output Tokens": tokenUsage.completion,
+        "Total Tokens": tokenUsage.total,
+        "Est. Cost ($)": cost.toFixed(4),
+      };
+    },
+  );
+
+  console.table(tableData);
+  console.log(`Total Estimated LLM Cost: $${totalCost.toFixed(4)}`);
+
+  console.log(`\n📂 Output:`);
+  if (extra?.generatedFiles !== undefined) {
+    console.log(`  - Files Generated: ${extra.generatedFiles}`);
+  }
+  if (extra?.modifiedFiles !== undefined) {
+    console.log(`  - Files Modified: ${extra.modifiedFiles}`);
+  }
+  console.log(`  - Validation Retries: ${metrics?.validationRetries || 0}`);
+  console.log(`  - Total Rounds: ${metrics?.totalRounds || 0}`);
+  console.log(`--------------------------------\n`);
+}
+
 export function calculateLLMCost(
   nodeName: string,
   inputTokens: number,

@@ -8,39 +8,46 @@ import { frontendEngineerNode } from "./nodes/frontendEngineerNode";
 import { validationNode } from "./nodes/validationNode";
 import { architectureNode } from "./nodes/architectureNode";
 import { triageNode } from "./nodes/triageNode";
-import { joinNode } from "./nodes/joinNode";
 import { createPrNode } from "./nodes/createPrNode";
 import { updateJiraStatusNode } from "./nodes/updateJiraStatusNode";
 
 /**
+ * Resolves the engineer node name from the execution plan's engineerType.
+ * To add a new engineer:
+ *   1. Create the node (e.g. backendEngineerNode) using createEngineerNode()
+ *   2. Add .addNode("backendEngineerNode", backendEngineerNode) below
+ *   3. Append "backendEngineerNode" to each ENGINEER_TARGETS array below
+ */
+function getEngineerNodeName(state: typeof AgentState.State): string {
+  return `${state.executionPlan?.engineerType ?? "frontend"}EngineerNode`;
+}
+
+// All valid engineer node names — update when new engineers are registered
+const ENGINEER_TARGETS = ["frontendEngineerNode"] as const;
+
+/**
  * Determine the next step based on validation results.
- * - API crash (validationCrashed): retry validation up to 3 times, then send to Engineer.
- * - Code issues (needsRevision): successful API response with bugs — send to Engineer to fix.
+ * - Code issues (needsRevision): send back to Engineer to fix.
  * - Escalation: 5+ rounds with critical failures → Engineering Manager for surgical fix.
+ * - Success: proceed to PR creation.
+ * Crashes are absorbed within validationNode — needsRevision:true routes to Engineer automatically.
  */
 function shouldContinue(state: typeof AgentState.State) {
-  // Hard cap — prevent infinite loops
-  if ((state.roundCount ?? 0) >= 15) {
+  // Hard cap — use totalRoundCount (never resets across EM surgical passes)
+  // roundCount resets to 0 after each EM escalation; totalRoundCount is monotonic.
+  if ((state.totalRoundCount ?? 0) >= 15) {
     console.error(
-      `🛑 [Graph][${state.ticketId}] Hard round cap reached (${state.roundCount}). Terminating.`,
+      `🛑 [Graph][${state.ticketId}] Hard round cap reached (total: ${state.totalRoundCount}). Terminating.`,
     );
     return "createPrNode";
   }
 
-  // Success always wins — even at round 5+, passing code goes forward
-  if (!state.validationCrashed && !state.needsRevision) {
+  // Success — passing code goes forward
+  if (!state.needsRevision) {
     console.log(
       `✅ [Graph][${state.ticketId}] Validation passed. Proceeding to PR creation.`,
     );
     return "createPrNode";
-  }
-
-  // API/technical failure: retry the validation node up to 3 times before giving up
-  if (state.validationCrashed && (state.validationCrashCount ?? 0) < 3) {
-    console.log(
-      `🔁 [Graph][${state.ticketId}] Validation crashed (attempt ${state.validationCrashCount ?? 0}/3). Retrying validation...`,
-    );
-    return "validationNode";
   }
 
   // Escalation — only when there are ACTUAL critical failures after 5+ rounds
@@ -51,11 +58,11 @@ function shouldContinue(state: typeof AgentState.State) {
     return "emNode";
   }
 
-  // Code bugs found (needsRevision) OR crash retries exhausted → back to Engineer
+  // Code bugs or absorbed system errors → back to Engineer
   console.log(
-    `🔄 [Graph][${state.ticketId}] Sending back to Engineer (Crash: ${state.validationCrashed}, Revision: ${state.needsRevision}).`,
+    `🔄 [Graph][${state.ticketId}] Sending back to Engineer (needsRevision: ${state.needsRevision}).`,
   );
-  return "frontendEngineerNode";
+  return getEngineerNodeName(state);
 }
 
 /**
@@ -68,15 +75,15 @@ function routeFromEM(state: typeof AgentState.State) {
     console.log(
       `🔀 [Graph][${state.ticketId}] EM surgical escalation — bypassing Design, routing directly to Engineer.`,
     );
-    return "frontendEngineerNode";
+    return getEngineerNodeName(state);
   }
   return "designNode";
 }
 
 /**
  * Split execution after Triage.
- * Branches into Planning (PM) or Fast-Track (Join).
- * Jira Update runs in parallel unconditionally.
+ * High/Medium → full planning pipeline (PM → EM → Design → Engineer).
+ * Low → directly to Engineer (no planning needed).
  */
 function splitPath(state: typeof AgentState.State) {
   const complexity = state.ticketClassification?.complexity;
@@ -88,8 +95,8 @@ function splitPath(state: typeof AgentState.State) {
     return "pmNode";
   }
 
-  console.log("⏩ [Graph] Low complexity detected. Routing to Join directly.");
-  return "joinNode";
+  console.log("⏩ [Graph] Low complexity detected. Fast-tracking to Engineer.");
+  return getEngineerNodeName(state);
 }
 
 // Initialize the graph with the state definition
@@ -101,8 +108,8 @@ const workflow = new StateGraph(AgentState)
   .addNode("pmNode", pmNode)
   .addNode("emNode", emNode)
   .addNode("designNode", designNode)
-  .addNode("joinNode", joinNode)
   .addNode("frontendEngineerNode", frontendEngineerNode)
+  // To add backendEngineerNode: .addNode("backendEngineerNode", backendEngineerNode)
   .addNode("validationNode", validationNode)
   .addNode("createPrNode", createPrNode)
   .addNode("updateJiraStatusNode", updateJiraStatusNode)
@@ -114,7 +121,7 @@ const workflow = new StateGraph(AgentState)
   // Jira Update -> Planning/Execution (Conditional)
   .addConditionalEdges("updateJiraMetadataNode", splitPath, [
     "pmNode",
-    "joinNode",
+    ...ENGINEER_TARGETS,
   ])
   // Planning Branch
   .addEdge("pmNode", "emNode")
@@ -122,15 +129,14 @@ const workflow = new StateGraph(AgentState)
   // standard PM flow continues through Design as normal
   .addConditionalEdges("emNode", routeFromEM, [
     "designNode",
-    "frontendEngineerNode",
+    ...ENGINEER_TARGETS,
   ])
-  .addEdge("designNode", "joinNode")
-  // Join -> Engineer (via Command inside joinNode or direct edge)
-  .addEdge("joinNode", "frontendEngineerNode")
+  // Design feeds into the engineer selected by the EM
+  .addConditionalEdges("designNode", getEngineerNodeName, [...ENGINEER_TARGETS])
   .addEdge("frontendEngineerNode", "validationNode")
+  // To add backendEngineerNode: .addEdge("backendEngineerNode", "validationNode")
   .addConditionalEdges("validationNode", shouldContinue, [
-    "validationNode",
-    "frontendEngineerNode",
+    ...ENGINEER_TARGETS,
     "emNode",
     "createPrNode",
   ])

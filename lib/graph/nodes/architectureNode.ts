@@ -5,10 +5,10 @@ import {
   ARCHITECTURE_SYSTEM_PROMPT,
   getArchitectureUserPrompt,
 } from "../prompts/architecturePrompts";
-import { analyzeProjectContext } from "../../project-context";
+import { analyzeProjectContext, getInstalledPackages } from "../../project-context";
 import { getCached, setCached } from "../../cache";
 import { createHash } from "crypto";
-import { createTokenUsageCallback } from "../metrics-utils";
+import { extractTokenUsage } from "../metrics-utils";
 
 /**
  * The Architecture Understanding Agent node.
@@ -25,7 +25,10 @@ export async function architectureNode(state: typeof AgentState.State) {
 
   // Analyze the project context (files, configs)
   // This reuses the logic we built earlier, but now it feeds the Architecture Agent
-  const rawProjectContext = await analyzeProjectContext();
+  const [rawProjectContext, installedPackages] = await Promise.all([
+    analyzeProjectContext(),
+    getInstalledPackages(),
+  ]);
 
   // Generate cache key based on project context (which includes package.json content)
   const hash = createHash("md5").update(rawProjectContext).digest("hex");
@@ -35,11 +38,12 @@ export async function architectureNode(state: typeof AgentState.State) {
   const cachedProfile = await getCached(cacheKey);
   if (cachedProfile) {
     console.log(
-      `⚡ [Architecture Node][${state.ticketId}] Using cached profile.`,
+      `⚡ [Architecture Node][${state.ticketId}] Using cached profile. (${installedPackages.length} packages detected)`,
     );
     return {
       architectureProfile: JSON.parse(cachedProfile),
       projectContext: rawProjectContext,
+      installedPackages,
     };
   }
 
@@ -53,24 +57,19 @@ export async function architectureNode(state: typeof AgentState.State) {
     ArchitectureProfileSchema,
     {
       name: "generate_architecture_profile",
+      includeRaw: true,
     },
   );
 
   const systemPrompt = ARCHITECTURE_SYSTEM_PROMPT;
   const userPrompt = getArchitectureUserPrompt(rawProjectContext);
 
-  let tokenUsage = { prompt: 0, completion: 0, total: 0 };
-  const TokenHandler = createTokenUsageCallback(tokenUsage);
+  const { raw, parsed: architectureProfile } = await structuredModel.invoke([
+    ["system", systemPrompt],
+    ["user", userPrompt],
+  ]);
 
-  const architectureProfile = await structuredModel.invoke(
-    [
-      ["system", systemPrompt],
-      ["user", userPrompt],
-    ],
-    {
-      callbacks: [new TokenHandler()],
-    },
-  );
+  const tokenUsage = extractTokenUsage(raw);
 
   console.log(`✅ [Architecture Node][${state.ticketId}] Profile Generated:`);
   console.log(
@@ -81,6 +80,9 @@ export async function architectureNode(state: typeof AgentState.State) {
   );
   console.log(
     `   Theme: ${architectureProfile.theme?.colors} | Spacing: ${architectureProfile.theme?.spacing}`,
+  );
+  console.log(
+    `   Packages: ${installedPackages.length} installed (${installedPackages.slice(0, 5).join(", ")}${installedPackages.length > 5 ? "..." : ""})`,
   );
 
   // Cache the result
@@ -93,11 +95,8 @@ export async function architectureNode(state: typeof AgentState.State) {
 
   return {
     architectureProfile,
-    // We can also keep the raw context string if needed, or let the profile replace it.
-    // The previous implementation used 'projectContext' string.
-    // To minimize breakage, we can keep 'projectContext' as the raw string,
-    // and add 'architectureProfile' as the structured data.
     projectContext: rawProjectContext,
+    installedPackages,
     metrics: {
       nodeExecutionTimes: {
         architectureNode: duration,

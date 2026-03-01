@@ -6,6 +6,7 @@ import {
   getEMUserPrompt,
 } from "../prompts/emPrompts";
 import { ExecutionPlanSchema } from "../schema";
+import { extractTokenUsage } from "../metrics-utils";
 
 /**
  * The Engineering Manager (EM) Agent node.
@@ -31,9 +32,11 @@ export async function emNode(state: typeof AgentState.State) {
     temperature: 0,
   });
 
-  // Create a structured output model
+  // includeRaw: true returns { raw: BaseMessage, parsed: T } so we can read
+  // usage_metadata from result.raw — same approach as validationNode/engineerNode.
   const structuredModel = model.withStructuredOutput(ExecutionPlanSchema, {
     name: "create_technical_contract",
+    includeRaw: true,
   });
 
   // Extract likely components from codebaseTree
@@ -70,13 +73,19 @@ export async function emNode(state: typeof AgentState.State) {
     JSON.stringify({ systemPrompt, userPrompt }, null, 2),
   );
 
-  const tokenUsage = { prompt: 0, completion: 0, total: 0 };
-
   // Generate the execution plan
-  const result = await structuredModel.invoke([
+  const { raw, parsed: result } = await structuredModel.invoke([
     ["system", systemPrompt],
     ["user", userPrompt],
   ]);
+
+  const tokenUsage = extractTokenUsage(raw);
+
+  if (!result) {
+    throw new Error(
+      `[EM Node][${state.ticketId}] Structured output returned null — model failed to conform to ExecutionPlan schema. Raw response type: ${raw?.constructor?.name ?? "unknown"}.`,
+    );
+  }
 
   console.log(`✅ [EM Node][${state.ticketId}] Technical Contract Generated:`);
   console.log(`   Scope: ${result.featureScope}`);
@@ -103,6 +112,7 @@ export async function emNode(state: typeof AgentState.State) {
   // Return the updated state
   // If this was a surgical escalation, reset the round counter so the engineer
   // starts fresh on the narrow surgical scope (round 1), and clear revision flags.
+  // totalRoundCount is NOT reset — it is the monotonic hard cap counter.
   const isSurgical = !!surgicalContext;
 
   return {
@@ -111,7 +121,6 @@ export async function emNode(state: typeof AgentState.State) {
     ...(isSurgical && {
       roundCount: 0,
       needsRevision: false,
-      validationCrashed: false,
       errorAttemptHistory: [],
     }),
     metrics: {

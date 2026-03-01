@@ -1,5 +1,29 @@
 import { readFile } from "fs/promises";
-import path from "path";
+
+/**
+ * Reads and parses the target project's package.json to extract the full list
+ * of installed npm packages (dependencies + devDependencies + peerDependencies).
+ *
+ * Returns an empty array if package.json cannot be read or parsed — callers
+ * should treat an empty list as "unknown, don't block" rather than "nothing installed".
+ */
+export async function getInstalledPackages(): Promise<string[]> {
+  try {
+    const raw = await readFile("package.json", "utf-8");
+    const pkg = JSON.parse(raw) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
+    };
+    return [
+      ...Object.keys(pkg.dependencies ?? {}),
+      ...Object.keys(pkg.devDependencies ?? {}),
+      ...Object.keys(pkg.peerDependencies ?? {}),
+    ];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Analyzes the current project configuration to provide context for the PM agent.

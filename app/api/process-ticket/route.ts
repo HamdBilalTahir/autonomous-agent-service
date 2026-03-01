@@ -3,7 +3,7 @@ import { graph } from "../../../lib/graph";
 import { JiraService } from "../../../lib/jira";
 import { GitHubService } from "../../../lib/github";
 import { getCached, setCached } from "../../../lib/cache";
-import { calculateLLMCost } from "../../../lib/graph/metrics-utils";
+import { logPerformanceReport } from "../../../lib/graph/metrics-utils";
 
 export const maxDuration = 300;
 
@@ -79,80 +79,10 @@ export async function POST(req: NextRequest) {
     const prUrl = finalState.prUrl;
 
     // --- Performance Logging ---
-    const endTime = Date.now();
-    const totalDuration = (endTime - (metrics?.startTime || endTime)) / 1000;
-
-    console.log(`\n📊 Workflow Performance Report`);
-    console.log(`--------------------------------`);
-    console.log(`Ticket: ${ticketId} (${summary})`);
-    console.log(`Total Duration: ${totalDuration.toFixed(2)}s`);
-    console.log(`--------------------------------`);
-
-    let totalCost = 0;
-
-    const tableData = Object.entries(metrics?.nodeCallCounts || {}).map(
-      ([nodeName, count]) => {
-        let duration = 0;
-        let tokenUsage = { prompt: 0, completion: 0, total: 0 };
-
-        // Aggregate execution times and token usage for this node
-        // Check for exact match
-        if (metrics?.nodeExecutionTimes?.[nodeName]) {
-          duration += metrics.nodeExecutionTimes[nodeName];
-        }
-        if (metrics?.nodeTokenUsage?.[nodeName]) {
-          const usage = metrics.nodeTokenUsage[nodeName];
-          tokenUsage.prompt += usage.prompt;
-          tokenUsage.completion += usage.completion;
-          tokenUsage.total += usage.total;
-        }
-
-        // Check for suffixed entries (e.g., validationNode_attempt_1)
-        Object.keys(metrics?.nodeExecutionTimes || {}).forEach((key) => {
-          if (key.startsWith(`${nodeName}_`)) {
-            duration += metrics?.nodeExecutionTimes[key] || 0;
-          }
-        });
-        Object.keys(metrics?.nodeTokenUsage || {}).forEach((key) => {
-          if (key.startsWith(`${nodeName}_`)) {
-            const usage = metrics?.nodeTokenUsage[key];
-            if (usage) {
-              tokenUsage.prompt += usage.prompt;
-              tokenUsage.completion += usage.completion;
-              tokenUsage.total += usage.total;
-            }
-          }
-        });
-
-        const cost = calculateLLMCost(
-          nodeName,
-          tokenUsage.prompt,
-          tokenUsage.completion,
-        );
-        totalCost += cost;
-
-        return {
-          Node: nodeName,
-          Calls: count,
-          "Duration (s)": (duration / 1000).toFixed(2),
-          "Input Tokens": tokenUsage.prompt,
-          "Output Tokens": tokenUsage.completion,
-          "Total Tokens": tokenUsage.total,
-          "Est. Cost ($)": cost.toFixed(4),
-        };
-      },
-    );
-
-    console.table(tableData);
-    console.log(`Total Estimated LLM Cost: $${totalCost.toFixed(4)}`);
-
-    console.log(`\n📂 Output:`);
-    console.log(
-      `  - Files Generated: ${metrics?.totalFilesGenerated || generatedCode?.length || 0}`,
-    );
-    console.log(`  - Files Modified: ${metrics?.totalFilesModified || 0}`);
-    console.log(`  - Validation Retries: ${metrics?.validationRetries || 0}`);
-    console.log(`--------------------------------\n`);
+    logPerformanceReport(metrics, ticketId!, summary, {
+      generatedFiles: metrics?.totalFilesGenerated || generatedCode?.length || 0,
+      modifiedFiles: metrics?.totalFilesModified || 0,
+    });
     // ---------------------------
 
     return NextResponse.json({

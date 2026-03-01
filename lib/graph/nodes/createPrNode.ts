@@ -32,7 +32,6 @@ export async function createPrNode(state: typeof AgentState.State) {
       executionPlan || { featureScope: "", implementationInstructions: "" },
       ticketClassification?.type || "feature",
       ticketClassification?.branchSlug,
-      ticketClassification?.commitMessage,
     );
 
     console.log(`✅ [Create PR Node][${ticketId}] PR Created: ${pr.html_url}`);

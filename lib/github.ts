@@ -1,6 +1,95 @@
 import { Octokit } from "@octokit/rest";
 import { withRetry } from "./utils/retry";
 
+/**
+ * Generates a short, specific conventional commit message for a single file
+ * based on its path. Avoids the "same message for every file" problem.
+ *
+ * Examples:
+ *   src/app/onboarding/page.tsx          → feat(onboarding): add onboarding page
+ *   src/components/profile/AvatarCard.tsx → feat(profile): add avatar card component
+ *   src/hooks/useOnboardingWizard.ts      → feat(hooks): add useOnboardingWizard hook
+ *   src/app/api/users/route.ts            → feat(api): add users endpoint
+ *   src/app/settings/layout.tsx           → feat(settings): add settings layout
+ */
+function generateFileCommitMessage(filePath: string): string {
+  const parts = filePath.split("/").filter(Boolean);
+  const fileName = parts[parts.length - 1] ?? filePath;
+  const fileNameNoExt = fileName.replace(/\.(tsx?|jsx?|css|json|mjs|cjs)$/, "");
+
+  // Derive conventional commit type from file characteristics
+  let type = "feat";
+  if (/\.(test|spec)\.(tsx?|jsx?)$/.test(fileName)) type = "test";
+  else if (/\.(css|scss|sass)$/.test(fileName)) type = "style";
+
+  // Derive scope from the directory structure
+  let scope = "";
+  const apiIdx = parts.findIndex((p) => p === "api");
+  const compIdx = parts.findIndex((p) => p === "components");
+  const appIdx = parts.findIndex((p) => p === "app");
+  const hooksIdx = parts.findIndex((p) => p === "hooks");
+  const libIdx = parts.findIndex((p) => p === "lib");
+  const utilsIdx = parts.findIndex((p) => p === "utils");
+
+  if (apiIdx !== -1) {
+    scope = "api";
+  } else if (hooksIdx !== -1) {
+    scope = "hooks";
+  } else if (compIdx !== -1 && parts[compIdx + 1]) {
+    // Use the subfolder under components (e.g. components/onboarding → onboarding)
+    scope = parts[compIdx + 1].toLowerCase();
+  } else if (appIdx !== -1 && parts[appIdx + 1] && parts[appIdx + 1] !== "api") {
+    scope = parts[appIdx + 1].toLowerCase();
+  } else if (libIdx !== -1) {
+    scope = "lib";
+  } else if (utilsIdx !== -1) {
+    scope = "utils";
+  }
+
+  // Derive human-readable subject from the file name
+  // Convert PascalCase/camelCase to kebab words: UserProfile → user profile
+  const toWords = (s: string) =>
+    s
+      .replace(/([A-Z])/g, " $1")
+      .trim()
+      .toLowerCase();
+
+  let subject = "";
+  if (fileNameNoExt === "page") {
+    const parent = parts[parts.length - 2] ?? scope;
+    subject = `add ${parent} page`;
+  } else if (fileNameNoExt === "layout") {
+    const parent = parts[parts.length - 2] ?? scope;
+    subject = `add ${parent} layout`;
+  } else if (fileNameNoExt === "route") {
+    const parent = parts[parts.length - 2] ?? "api route";
+    subject = `add ${parent} endpoint`;
+  } else if (fileNameNoExt === "loading") {
+    const parent = parts[parts.length - 2] ?? scope;
+    subject = `add ${parent} loading skeleton`;
+  } else if (fileNameNoExt === "error") {
+    const parent = parts[parts.length - 2] ?? scope;
+    subject = `add ${parent} error boundary`;
+  } else if (fileNameNoExt.startsWith("use")) {
+    subject = `add ${toWords(fileNameNoExt)} hook`;
+  } else if (
+    fileNameNoExt.endsWith("Context") ||
+    fileNameNoExt.endsWith("Provider")
+  ) {
+    subject = `add ${toWords(fileNameNoExt)}`;
+  } else if (fileNameNoExt.endsWith("Schema") || fileNameNoExt === "schema") {
+    subject = `add ${scope || fileNameNoExt} schema`;
+  } else if (fileNameNoExt === "types" || fileNameNoExt === "index") {
+    subject = scope ? `add ${scope} ${fileNameNoExt}` : `add ${fileNameNoExt}`;
+  } else {
+    subject = `add ${toWords(fileNameNoExt)} component`;
+  }
+
+  const scopePart = scope ? `(${scope})` : "";
+  // Cap at 72 chars — conventional commit best practice
+  return `${type}${scopePart}: ${subject}`.slice(0, 72);
+}
+
 export class GitHubService {
   private octokit: Octokit;
 
@@ -343,7 +432,6 @@ export class GitHubService {
     executionPlan: { featureScope: string; implementationInstructions: string },
     ticketType: string = "feature",
     branchSlug?: string,
-    commitMessage?: string,
   ) {
     let branchName: string | undefined;
 
@@ -365,10 +453,9 @@ export class GitHubService {
 
       // Push Code
       for (const file of generatedCode) {
-        // Use provided commit message or fall back to generated default
-        const message = commitMessage
-          ? `${commitMessage} (${file.filePath})`
-          : `${ticketType}: ${file.filePath} (AI Generated)`;
+        // Generate a file-specific commit message so each commit describes
+        // exactly what that file adds, instead of repeating the ticket summary.
+        const message = generateFileCommitMessage(file.filePath);
 
         await this.createOrUpdateFile(
           owner,

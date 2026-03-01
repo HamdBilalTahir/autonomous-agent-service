@@ -3,6 +3,8 @@ import { AgentState, GeneratedFile } from "../state";
 import { ValidationSchema } from "../schema";
 import { getValidationSystemPrompt } from "../prompts/validationPrompts";
 import { extractTokenUsage } from "../metrics-utils";
+import { withConcurrency } from "../concurrency";
+import { checkCrossFileImports, checkPackageImports } from "../ts-cross-file-check";
 
 /**
  * Extracts exported type/function/const signatures from a generated file.
@@ -42,11 +44,9 @@ export async function validationNode(state: typeof AgentState.State) {
     projectContext,
     architectureProfile,
     executionPlan,
-    validationCrashCount,
     retryCount,
     roundCount,
   } = state;
-  const currentAttempts = validationCrashCount || 0;
   const currentRetry = retryCount ?? 0;
   const currentRound = roundCount ?? 0;
 
@@ -59,16 +59,15 @@ export async function validationNode(state: typeof AgentState.State) {
       needsRevision: true,
       validationErrors: ["No code generated. Please regenerate."],
       validationWarnings: [],
-      validationCrashCount: 0,
-      validationCrashed: false,
     };
   }
 
   const isLenient = currentRound >= WARNING_LENIENCY_ROUND;
 
   // Validation Logic
-  // Using Flash model as per configuration rules (Pro restricted to EM/Design/Engineer)
-  // const modelName = "gemini-3-flash-preview";
+  // Pro is required here — Flash produces noisy false positives and misses subtle
+  // type errors, causing extra revision rounds that cost more total time than the
+  // per-call savings. Pro with a lean prompt is the fastest end-to-end approach.
   const modelName = "gemini-3.1-pro-preview";
 
   console.log(
@@ -99,7 +98,9 @@ export async function validationNode(state: typeof AgentState.State) {
   );
 
   const tokenUsage = { prompt: 0, completion: 0, total: 0 };
-  const VALIDATION_TIMEOUT_MS = 300_000;
+  // Timeouts shrink aggressively on retries: smaller prompt = should complete fast.
+  // If a stripped prompt still doesn't finish in 120s, another 300s attempt won't help.
+  const ATTEMPT_TIMEOUTS = [300_000, 120_000, 60_000]; // ms per attempt (1-indexed by attempt-1)
   const MAX_FILE_RETRIES = 3;
 
   // On a revision round, only re-validate the files the engineer just fixed.
@@ -115,18 +116,19 @@ export async function validationNode(state: typeof AgentState.State) {
   }
 
   console.log(
-    `   [Validation Node][${state.ticketId}] Validating ${filesToValidate.length} file(s) in parallel (timeout: ${VALIDATION_TIMEOUT_MS / 1000}s each)...`,
+    `   [Validation Node][${state.ticketId}] Validating ${filesToValidate.length} file(s) in parallel (timeouts: ${ATTEMPT_TIMEOUTS.map((t) => t / 1000).join("s / ")}s per attempt)...`,
   );
 
   const invokeStart = Date.now();
 
-  // Pre-compute export signatures from ALL generated files.
-  // Each file validation receives the exports of its siblings so the LLM
-  // can catch cross-file type mismatches (wrong prop types, missing exports, etc.)
-  // in round 1 instead of discovering them in round 2.
+  // Pre-compute export signatures. On attempt 1, each file receives the exports
+  // of its closest siblings (same directory) first, then others — capped at 8 total
+  // to keep the combined prompt lean. At 30 lines/file that's ≤240 lines of context
+  // vs the previous unbounded N-1 siblings (510+ lines on an 18-file ticket).
   const allSiblingSignatures = (generatedCode ?? []).map((f) =>
     extractExportSignatures(f.filePath, f.fileContent),
   );
+  const MAX_SIBLING_CONTEXT = 8;
 
   // Store results for each file
   const validationResults = new Map<
@@ -139,6 +141,55 @@ export async function validationNode(state: typeof AgentState.State) {
     }
   >();
 
+  const CONCURRENCY = 8;
+
+  // ── Deterministic pre-LLM checks (AST-based, < 10ms total, zero API cost) ──
+  // Results are merged into validationResults after the LLM pass so they are
+  // always surfaced — even when the LLM validation times out.
+  const crossFileErrorMap = new Map<string, string[]>();
+  try {
+    // 1. Cross-file import/export consistency (named vs default, missing exports)
+    const cfResults = checkCrossFileImports(
+      generatedCode ?? [],
+      filesToValidate,
+    );
+    for (const { filePath, criticalErrors } of cfResults) {
+      if (criticalErrors.length > 0) {
+        const existing = crossFileErrorMap.get(filePath) ?? [];
+        crossFileErrorMap.set(filePath, [...existing, ...criticalErrors]);
+      }
+    }
+
+    // 2. Package dependency check (imports not in package.json)
+    const pkgResults = checkPackageImports(
+      filesToValidate,
+      state.installedPackages ?? [],
+    );
+    for (const { filePath, criticalErrors } of pkgResults) {
+      if (criticalErrors.length > 0) {
+        const existing = crossFileErrorMap.get(filePath) ?? [];
+        crossFileErrorMap.set(filePath, [...existing, ...criticalErrors]);
+      }
+    }
+
+    if (crossFileErrorMap.size > 0) {
+      const totalErrs = [...crossFileErrorMap.values()].reduce(
+        (n, errs) => n + errs.length,
+        0,
+      );
+      console.log(
+        `   🔗 [Validation Node][${state.ticketId}] Static checks: ${totalErrs} issue(s) in ${crossFileErrorMap.size} file(s).`,
+      );
+      for (const [fp, errs] of crossFileErrorMap) {
+        errs.forEach((e) => console.log(`      ❌ [STATIC] ${fp}: ${e}`));
+      }
+    }
+  } catch (cfErr) {
+    console.warn(
+      `   ⚠️ [Validation Node][${state.ticketId}] Static checks failed (non-fatal): ${cfErr instanceof Error ? cfErr.message : String(cfErr)}`,
+    );
+  }
+
   // Helper to process a batch of files
   const processBatch = async (files: GeneratedFile[], attempt: number) => {
     if (files.length === 0) return [];
@@ -149,34 +200,57 @@ export async function validationNode(state: typeof AgentState.State) {
       );
     }
 
-    const promises = files.map(async (file) => {
+    const failedFiles: GeneratedFile[] = [];
+
+    await withConcurrency(files, CONCURRENCY, async (file) => {
+      const fileIndex = filesToValidate.indexOf(file) + 1;
+      const fileTag = `[${fileIndex}/${filesToValidate.length}]`;
+
       try {
         console.log(
-          `   [Validation Node][${state.ticketId}] Reviewing ${file.filePath} (${file.fileContent.length} chars)...`,
+          `   [Validation Node][${state.ticketId}] ${fileTag} Reviewing ${file.filePath} (${file.fileContent.length} chars)...`,
         );
 
+        // Timeout shrinks each attempt: full prompt gets 300s; stripped retries get much less.
+        const timeoutMs = ATTEMPT_TIMEOUTS[Math.min(attempt - 1, ATTEMPT_TIMEOUTS.length - 1)];
         const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(
-            () =>
-              reject(
-                new Error(
-                  `Validation timed out after ${VALIDATION_TIMEOUT_MS / 1000}s`,
-                ),
-              ),
-            VALIDATION_TIMEOUT_MS,
+            () => reject(new Error(`Validation timed out after ${timeoutMs / 1000}s`)),
+            timeoutMs,
           ),
         );
 
-        // Build sibling context: exports of every other generated file.
-        // Gives the LLM cross-file visibility so it can catch prop-type mismatches
-        // between siblings without needing a second validation round.
-        const siblingContext = allSiblingSignatures
-          .filter((sig) => !sig.startsWith(`[${file.filePath}]`))
-          .join("\n\n");
-
-        const userContent = siblingContext
-          ? `SIBLING FILE EXPORTS (for cross-file type checking — do NOT flag these imports as missing):\n${siblingContext}\n\nFILE TO VALIDATE: ${file.filePath}\n${file.fileContent}`
-          : `FILE: ${file.filePath}\n\n${file.fileContent}`;
+        // Attempt 1: full context — sibling exports + focus hint + file.
+        // Attempt 2+: file only — strip everything to minimise prompt size and
+        //             maximise the chance of completing within the reduced timeout.
+        let userContent: string;
+        if (attempt === 1) {
+          const fileDir = file.filePath.split("/").slice(0, -1).join("/");
+          const siblings = allSiblingSignatures.filter(
+            (sig) => !sig.startsWith(`[${file.filePath}]`),
+          );
+          // Prioritise same-directory siblings (most likely to have type dependencies),
+          // then fill up to MAX_SIBLING_CONTEXT from the rest.
+          const sameDirSibs = siblings.filter((sig) =>
+            sig.startsWith(`[${fileDir}/`),
+          );
+          const otherSibs = siblings.filter(
+            (sig) => !sig.startsWith(`[${fileDir}/`),
+          );
+          const siblingContext = [...sameDirSibs, ...otherSibs]
+            .slice(0, MAX_SIBLING_CONTEXT)
+            .join("\n\n");
+          const focusHint =
+            previouslyFailing && previouslyFailing.includes(file.filePath)
+              ? `\nFOCUS: This file was revised to fix prior errors. Give extra scrutiny to changed sections. Still validate the full file.\n\n`
+              : "";
+          userContent = siblingContext
+            ? `SIBLING FILE EXPORTS (for cross-file type checking — do NOT flag these imports as missing):\n${siblingContext}\n\n${focusHint}FILE TO VALIDATE: ${file.filePath}\n${file.fileContent}`
+            : `${focusHint}FILE: ${file.filePath}\n\n${file.fileContent}`;
+        } else {
+          // Bare minimum — just validate the file, no extra context.
+          userContent = `FILE: ${file.filePath}\n\n${file.fileContent}`;
+        }
 
         const result = await Promise.race([
           structuredModel.invoke([
@@ -202,48 +276,21 @@ export async function validationNode(state: typeof AgentState.State) {
         else if (fileWarnings.length > 0) statusEmoji = "⚠️";
 
         console.log(
-          `   ${statusEmoji} [Validation Node][${state.ticketId}] ${file.filePath}: ${fileCriticals.length} critical, ${fileWarnings.length} warnings`,
+          `   ${statusEmoji} [Validation Node][${state.ticketId}] ${fileTag} ${file.filePath}: ${fileCriticals.length} critical, ${fileWarnings.length} warnings`,
         );
 
-        return {
-          status: "fulfilled" as const,
-          value: {
-            filePath: file.filePath,
-            criticalErrors: fileCriticals,
-            warnings: fileWarnings,
-            needsWork:
-              fileCriticals.length > 0 ||
-              (!isLenient && fileWarnings.length > 0),
-          },
-        };
+        validationResults.set(file.filePath, {
+          filePath: file.filePath,
+          criticalErrors: fileCriticals,
+          warnings: fileWarnings,
+          needsWork:
+            fileCriticals.length > 0 || (!isLenient && fileWarnings.length > 0),
+        });
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         console.error(
-          `   ❌ [Validation Node][${state.ticketId}] Failed to validate ${file.filePath}: ${errMsg}`,
+          `   ❌ [Validation Node][${state.ticketId}] ${fileTag} Failed to validate ${file.filePath}: ${errMsg}`,
         );
-        return {
-          status: "rejected" as const,
-          reason: error,
-          filePath: file.filePath, // Custom property to track which file failed
-        };
-      }
-    });
-
-    const results = await Promise.allSettled(promises);
-
-    // Process results
-    const failedFiles: GeneratedFile[] = [];
-
-    results.forEach((result, index) => {
-      const file = files[index];
-
-      if (
-        result.status === "fulfilled" &&
-        result.value.status === "fulfilled"
-      ) {
-        validationResults.set(file.filePath, result.value.value);
-      } else {
-        // Validation failed (crashed/timed out)
         failedFiles.push(file);
       }
     });
@@ -280,13 +327,55 @@ export async function validationNode(state: typeof AgentState.State) {
       `   [Validation Node][${state.ticketId}] All files processed in ${Date.now() - invokeStart}ms.`,
     );
 
+    // Merge cross-file import errors into LLM validation results.
+    // Cross-file errors are deterministic and always correct — they are prepended
+    // so the engineer sees them first (before any LLM-generated errors).
+    for (const [filePath, cfErrors] of crossFileErrorMap) {
+      const existing = validationResults.get(filePath);
+      if (existing) {
+        existing.criticalErrors = [...cfErrors, ...existing.criticalErrors];
+        existing.needsWork = true;
+      } else {
+        // File failed LLM validation entirely (timeout) — still surface CF errors
+        validationResults.set(filePath, {
+          filePath,
+          criticalErrors: cfErrors,
+          warnings: [],
+          needsWork: true,
+        });
+      }
+    }
+
     // Convert map to array for final processing
     const fileResults = Array.from(validationResults.values());
 
+    // In lenient mode (round ≥ WARNING_LENIENCY_ROUND), files that failed ONLY due
+    // to API timeouts are accepted as-is. The engineer already inline-validated them
+    // up to 3 times — a persistent API timeout is not a code bug and cannot be fixed
+    // by regenerating the file. Clearing these prevents an infinite timeout loop.
+    const isTimeoutOnly = (r: { criticalErrors: string[] }) =>
+      r.criticalErrors.length > 0 &&
+      r.criticalErrors.every((e) => e.includes("Validation process failed"));
+
+    const effectiveResults = isLenient
+      ? fileResults.map((r) =>
+          isTimeoutOnly(r) ? { ...r, criticalErrors: [], needsWork: false } : r,
+        )
+      : fileResults;
+
+    if (isLenient) {
+      const accepted = fileResults.filter(isTimeoutOnly);
+      if (accepted.length > 0) {
+        console.log(
+          `   ⏭️ [Validation Node][${state.ticketId}] Lenient mode: accepting ${accepted.length} timeout-only file(s) as-is: ${accepted.map((r) => r.filePath).join(", ")}`,
+        );
+      }
+    }
+
     // Merge per-file results
-    const criticalErrors = fileResults.flatMap((r) => r.criticalErrors);
-    const warnings = fileResults.flatMap((r) => r.warnings);
-    const filesNeedingRevision = fileResults
+    const criticalErrors = effectiveResults.flatMap((r) => r.criticalErrors);
+    const warnings = effectiveResults.flatMap((r) => r.warnings);
+    const filesNeedingRevision = effectiveResults
       .filter((r) => r.needsWork)
       .map((r) => r.filePath);
 
@@ -304,9 +393,23 @@ export async function validationNode(state: typeof AgentState.State) {
         `🚑 [Validation Node][${state.ticketId}] CRITICAL THRESHOLD REACHED (Round ${currentRound}). Initiating Surgical Delta.`,
       );
 
-      // Identify failing files
-      const failingFiles = new Set<string>();
-      criticalErrors.forEach((err) => {
+      // Split errors at source: real TypeScript bugs vs system timeouts/crashes.
+      // EM receives only realErrors so it doesn't hallucinate infrastructure fixes
+      // for what are actually transient system retries.
+      const systemErrors = criticalErrors.filter(
+        (e) =>
+          e.includes("Validation process failed") || e.includes("timeout"),
+      );
+      const realErrors = criticalErrors.filter(
+        (e) => !systemErrors.includes(e),
+      );
+
+      // Identify failing files. Seed directly from filesNeedingRevision — timeout-
+      // failing file paths cannot be extracted from error strings (the message
+      // "Validation process failed" contains no path). Also parse real error strings
+      // for any additional path precision from TypeScript error formatting.
+      const failingFiles = new Set<string>(filesNeedingRevision);
+      realErrors.forEach((err) => {
         const match = err.match(/\]\s+([@a-zA-Z0-9_\-\/.]+)(?::|\s-)/);
         if (match && match[1]) {
           failingFiles.add(match[1].trim());
@@ -315,7 +418,8 @@ export async function validationNode(state: typeof AgentState.State) {
 
       surgicalContext = {
         failingFilePaths: Array.from(failingFiles),
-        errorLogs: criticalErrors,
+        errorLogs: realErrors,
+        systemErrors,
       };
 
       // Store current files as checkpoint (if not already stored)
@@ -388,21 +492,16 @@ export async function validationNode(state: typeof AgentState.State) {
       validationErrors: [...criticalErrors, ...warnings],
       validationWarnings: warnings,
       filesNeedingRevision,
-      validationCrashCount: 0,
-      validationCrashed: false,
       surgicalContext, // Update or clear
       checkpointFiles, // Store or keep
       featureList: surgicalContext ? featureList : state.featureList, // Mask if surgical, else keep original
       metrics: {
         nodeExecutionTimes: {
-          [`validationNode_r${currentRound}_retry${currentRetry}_attempt${currentAttempts + 1}`]:
-            duration,
+          [`validationNode_r${currentRound}_retry${currentRetry}`]: duration,
         },
         nodeTokenUsage: {
-          [`validationNode_r${currentRound}_retry${currentRetry}_attempt${currentAttempts + 1}`]:
-            tokenUsage,
+          [`validationNode_r${currentRound}_retry${currentRetry}`]: tokenUsage,
         },
-        validationRetries: currentAttempts,
         totalRounds: currentRound,
         nodeCallCounts: {
           validationNode: 1,
@@ -418,14 +517,17 @@ export async function validationNode(state: typeof AgentState.State) {
       `❌ [Validation Node][${state.ticketId}] CRASHED [${errType}] after ${elapsed}ms: ${errMsg}`,
     );
 
+    // Absorb catastrophic failures within the node — mark all files as needing
+    // revision and let the normal engineer retry flow handle recovery.
+    const crashedFilePaths = (filesToValidate ?? []).map((f) => f.filePath);
+    const crashError = `Validation system error: ${errMsg}`;
+
     return {
-      needsRevision: false,
-      validationErrors: [],
+      needsRevision: true,
+      validationErrors: [crashError],
       validationWarnings: [],
-      validationCrashCount: currentAttempts + 1,
-      validationCrashed: true,
+      filesNeedingRevision: crashedFilePaths,
       metrics: {
-        validationRetries: currentAttempts + 1,
         totalRounds: currentRound,
         nodeCallCounts: {
           validationNode: 1,

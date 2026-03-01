@@ -7,7 +7,7 @@ import {
   FAST_PLANNER_SYSTEM_PROMPT,
   getFastPlannerUserPrompt,
 } from "../prompts/triagePrompts";
-import { createTokenUsageCallback } from "../metrics-utils";
+import { extractTokenUsage } from "../metrics-utils";
 /**
  * The Triage Agent node.
  * Responsibilities:
@@ -35,21 +35,18 @@ export async function triageNode(state: typeof AgentState.State) {
     TicketClassificationSchema,
     {
       name: "classify_ticket",
+      includeRaw: true,
     },
   );
 
-  let tokenUsage = { prompt: 0, completion: 0, total: 0 };
-  const TokenHandler = createTokenUsageCallback(tokenUsage);
-
-  const classification = await classifierModel.invoke(
-    [
+  const { raw: classifyRaw, parsed: classification } =
+    await classifierModel.invoke([
       ["system", TRIAGE_SYSTEM_PROMPT],
       ["user", getTriageUserPrompt(ticketSummary, ticketDescription)],
-    ],
-    {
-      callbacks: [new TokenHandler()],
-    },
-  );
+    ]);
+
+  const classifyUsage = extractTokenUsage(classifyRaw);
+  const tokenUsage = { ...classifyUsage };
 
   console.log(
     `   Classification: [${classification.complexity}] ${classification.type}`,
@@ -67,24 +64,27 @@ export async function triageNode(state: typeof AgentState.State) {
 
     const plannerModel = model.withStructuredOutput(ExecutionPlanSchema, {
       name: "fast_plan_execution",
+      includeRaw: true,
     });
 
-    executionPlan = await plannerModel.invoke(
+    const { raw: planRaw, parsed: plan } = await plannerModel.invoke([
+      ["system", FAST_PLANNER_SYSTEM_PROMPT],
       [
-        ["system", FAST_PLANNER_SYSTEM_PROMPT],
-        [
-          "user",
-          getFastPlannerUserPrompt(
-            ticketSummary,
-            ticketDescription,
-            codebaseTree,
-          ),
-        ],
+        "user",
+        getFastPlannerUserPrompt(
+          ticketSummary,
+          ticketDescription,
+          codebaseTree,
+        ),
       ],
-      {
-        callbacks: [new TokenHandler()], // Accumulate usage
-      },
-    );
+    ]);
+
+    const planUsage = extractTokenUsage(planRaw);
+    tokenUsage.prompt += planUsage.prompt;
+    tokenUsage.completion += planUsage.completion;
+    tokenUsage.total += planUsage.total;
+
+    executionPlan = plan;
 
     // Ensure priority from classification is carried over to plan if not set by planner
     // (Removed as priority is no longer part of ExecutionPlanSchema)

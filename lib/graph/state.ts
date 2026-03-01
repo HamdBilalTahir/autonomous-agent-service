@@ -158,13 +158,6 @@ export const AgentState = Annotation.Root({
   }),
 
   /**
-   * The number of consecutive validation API crashes. Resets to 0 on a successful validation call.
-   */
-  validationCrashCount: Annotation<number>({
-    reducer: (x, y) => y ?? x,
-  }),
-
-  /**
    * Context for surgical fixes (round 5+ critical errors).
    * Contains failing files and error logs.
    */
@@ -195,6 +188,15 @@ export const AgentState = Annotation.Root({
   }),
 
   /**
+   * Total rounds ever executed, including across surgical EM resets.
+   * roundCount resets to 0 after EM escalation (surgical scope); totalRoundCount never resets.
+   * Used for the absolute hard cap to prevent infinite loops regardless of surgical resets.
+   */
+  totalRoundCount: Annotation<number>({
+    reducer: (x, y) => y ?? x,
+  }),
+
+  /**
    * Non-critical validation warnings (style/quality issues). Non-blocking after round 5.
    */
   validationWarnings: Annotation<string[]>({
@@ -210,18 +212,22 @@ export const AgentState = Annotation.Root({
   }),
 
   /**
-   * Whether the validation node experienced a technical failure (crash/invalid output).
-   */
-  validationCrashed: Annotation<boolean>({
-    reducer: (x, y) => y ?? x,
-  }),
-
-  /**
    * File paths that have validation errors/warnings and need to be regenerated.
    * Set explicitly by the validation node — engineer uses this directly instead of parsing error strings.
    */
   filesNeedingRevision: Annotation<string[]>({
     reducer: (x, y) => y ?? x,
+  }),
+
+  /**
+   * The full list of npm package names installed in the target project
+   * (dependencies + devDependencies + peerDependencies from package.json).
+   * Parsed deterministically by architectureNode and used by the engineer
+   * (prompt injection) and validator (package import check).
+   */
+  installedPackages: Annotation<string[]>({
+    reducer: (x, y) => (y && y.length > 0 ? y : x),
+    default: () => [],
   }),
 
   /**

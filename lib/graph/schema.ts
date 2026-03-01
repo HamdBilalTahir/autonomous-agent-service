@@ -9,7 +9,7 @@ export const FeatureListSchema = z.object({
   featureList: z
     .array(z.string())
     .describe(
-      "A simple, bulleted list of features the user wants (e.g., 'Add a bar chart', 'Add Today filter').",
+      "A comprehensive, categorized list of actionable implementation tasks derived from the story audit. Each item is prefixed with a category tag: [CORE] for explicit story features, [NAV] for navigation/routing entry points, [STATE] for loading/error/empty states, [LAYOUT] for page layout requirements, [UX] for feedback/success/validation messages, [IMPACT] for updates to shared components. Inferred tasks not in the original story are prefixed with * (e.g., '* [NAV] Add sidebar link to new settings page'). Tasks must be specific enough for an engineer to implement without ambiguity.",
     ),
 });
 
@@ -40,6 +40,12 @@ export const ExecutionPlanSchema = z.object({
     .array(z.string())
     .describe(
       "List of specific rules for the validation agent to check (e.g., 'must use ActivityEvent interface').",
+    ),
+  engineerType: z
+    .enum(["frontend", "backend", "ai"])
+    .default("frontend")
+    .describe(
+      "Which engineer agent should implement this plan. Use 'frontend' for UI/React/CSS work, 'backend' for API/server/database work, 'ai' for ML/model/AI pipeline work.",
     ),
 });
 
@@ -244,7 +250,28 @@ export type ValidationResult = z.infer<typeof ValidationSchema>;
 
 export const SurgicalContextSchema = z.object({
   failingFilePaths: z.array(z.string()),
-  errorLogs: z.array(z.string()),
+  errorLogs: z.array(z.string()),       // real TypeScript/runtime errors
+  systemErrors: z.array(z.string()),    // timeout/crash strings — informational only
 });
 
 export type SurgicalContext = z.infer<typeof SurgicalContextSchema>;
+
+export const FilePatchSchema = z.object({
+  patches: z
+    .array(
+      z.object({
+        oldCode: z
+          .string()
+          .describe(
+            "Exact string currently in the file — must match character-for-character",
+          ),
+        newCode: z.string().describe("Replacement string"),
+        reason: z
+          .string()
+          .describe("One-line explanation of what this patch fixes"),
+      }),
+    )
+    .min(1),
+});
+
+export type FilePatch = z.infer<typeof FilePatchSchema>;

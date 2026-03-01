@@ -1,4 +1,337 @@
+## 🗓️ **2026-03-01**
+
+---
+
+### ✨ Features
+
+---
+
+> ### Per-File Commit Messages — Descriptive Conventional Commits
+>
+> - **What changed:** Replaced the repeated ticket-level commit message (all files got the same `feat: implement X (src/path/to/file)` message) with a deterministic per-file message generator. Each file now gets a specific, meaningful commit that describes exactly what that file adds:
+>   - `src/app/onboarding/page.tsx` → `feat(onboarding): add onboarding page`
+>   - `src/components/profile/AvatarCard.tsx` → `feat(profile): add avatar card component`
+>   - `src/hooks/useOnboardingWizard.ts` → `feat(hooks): add useOnboardingWizard hook`
+>   - `src/app/api/users/route.ts` → `feat(api): add users endpoint`
+>   - `src/app/settings/layout.tsx` → `feat(settings): add settings layout`
+>   - Scope is derived from the directory structure (subfolder under `components/`, parent folder under `app/`, etc.). Subject is derived from the file name (PascalCase/camelCase converted to lowercase words, with special handling for `page`, `layout`, `route`, `loading`, `error`, hooks, providers, and schemas). All messages capped at 72 characters per conventional commit best practice.
+>   - `commitMessage` parameter removed from `processChangesAndCreatePR` and its call site — the ticket-level commit message is no longer used per-file (the PR title still uses the ticket summary).
+> - **Why:** Every commit in the PR had an identical message, making the git log useless for understanding what changed file-by-file. Code review and `git blame` both rely on per-commit descriptions being meaningful.
+> - **Files:**
+>   - `lib/github.ts`
+>   - `lib/graph/nodes/createPrNode.ts`
+
+---
+
+> ### Validation — UX Completeness & User Journey Audits (AUDIT 6 & 7)
+>
+> - **What changed:** Added two new audit sections to the LLM validation prompt and injected the sprint's new routes into the validation context:
+>   1. **AUDIT 6 — UX COMPLETENESS** (all warnings): Catches patterns that compile cleanly but produce broken or confusing experiences — `href="#"` / `href=""` placeholder links, uninterpolated dynamic route segments (`/user/[id]` literal), lists with no empty state, async submit buttons with no loading/disabled state, form submissions with no success path (no toast or redirect), and async API calls with no catch block / error state shown to the user.
+>   2. **AUDIT 7 — USER JOURNEY & NAVIGATION** (critical + warnings): Catches `app/` page files missing `export default function` (404 — critical), page components with no back navigation (user trapped), step components calling `router.push` directly instead of `onNext()` (bypasses wizard shell), and navigation components modified this sprint that are missing a `<Link>` to newly created routes (orphan pages).
+>   3. **Sprint scope injection**: The list of new `app/` routes created this sprint is now extracted from `executionPlan.newFilesToCreate` and injected into the validation system prompt, enabling AUDIT 7 to cross-reference navigation components against the routes that should be reachable.
+>   4. **Two new REPAIR HINT templates** added to the solution-oriented feedback section: loading-state fix and empty-state fix.
+> - **Why:** Generated code was producing isolated dead-end screens with no back navigation, lists that showed blank space when empty, form submissions that offered no feedback, and new routes that were unreachable because no nav component was updated to link to them. These are all valid TypeScript but bad user experience — a gap between compilation correctness and actual usability.
+> - **Files:**
+>   - `lib/graph/prompts/validationPrompts.ts`
+
+---
+
+> ### PM Agent — Story Refinement, First Principles Audit & Categorized Task Generation
+>
+> - **What changed:** Completely rewrote the PM agent's system prompt to act as a Story Refinement Agent, not just a feature extractor. Three-phase approach:
+>   1. **Phase 0 — Story Audit**: Before planning, the PM now critically evaluates the raw user story: reframes solution-first stories as problem statements, assesses scope (is this one story or several?), runs a First Principles Check (does each element serve a distinct need? is there a simpler path? what's the minimum viable version?), and systematically identifies every implied gap — entry points, success/cancel/error paths, loading/empty states, auth gates, data cascades, and shared component side effects.
+>   2. **Phase 1 — Impact Analysis** (existing, strengthened): entry point, success path, cancel path, error state, auth gate, shared component impact, routing gaps — now grounded by the full active route list and codebase tree injected into the prompt.
+>   3. **Phase 2 — Task Generation**: Output is now a categorized, actionable task list using explicit tags — `[CORE]` (story features), `[NAV]` (navigation entry points), `[STATE]` (loading/error/empty), `[LAYOUT]` (page wrappers), `[UX]` (feedback/toasts/validation), `[IMPACT]` (shared component updates). Inferred tasks not in the original story are marked with `*`. Every task must be specific enough to implement without guessing.
+>   4. **Schema update**: `featureList` description updated to reflect the new categorized format so the structured output model generates rich task items instead of vague bullet points.
+> - **Why:** The PM was only extracting what the ticket said literally, ignoring implied work. The result was engineers building features with no nav links, no loading states, no success feedback, and no connection to the rest of the app. The new approach audits the story against product fundamentals before generating tasks, ensuring nothing is missed.
+> - **Files:**
+>   - `lib/graph/prompts/pmPrompts.ts`
+>   - `lib/graph/schema.ts`
+
+---
+
+> ### PM Agent — Holistic User Journey & Routing Gap Detection
+>
+> - **What changed:** Upgraded the PM node from `gemini-3-flash-preview` to `gemini-3.1-pro-preview` and completely rewrote its system prompt and user prompt to enforce holistic product thinking:
+>   1. **Phase 1 — Impact Analysis**: Before listing any requirements, the PM must answer 8 questions: entry point, success path, cancel/back path, error states, auth gate, shared component impact, data cascades, and routing gaps. Any new route with no entry point is flagged as a gap requiring an explicit nav link requirement.
+>   2. **Phase 2 — Feature Decomposition**: Requirements are categorised into Core Features, UX Integration (navigation hooks the ticket omits), Feedback/Loading States, Global Layout, and UI Components.
+>   3. **Mandatory UX Invariants**: Five rules applied to every ticket — no orphan pages, no dead ends, layout consistency, async feedback pattern (loading → success → error), and mobile navigation parity.
+>   4. **Richer context in user prompt**: The full `codebaseTree` (file structure) and complete active route list are now passed to the PM, so it can ground gap detection in what actually exists rather than generalising.
+> - **Why:** Generated features were producing isolated, dead-end UX — new pages with no nav links to reach them, multi-step flows with no back paths, and missing sidebar/navbar updates. The PM node was not reasoning about the user journey holistically; it only translated the literal ticket text without considering implied work.
+> - **Files:**
+>   - `lib/graph/nodes/pmNode.ts`
+>   - `lib/graph/prompts/pmPrompts.ts`
+
+---
+
+> ### UI/UX Bug Detection — Duplicate Elements & Color Contrast
+>
+> - **What changed:** Extended both the engineer and validation prompts with two new structural UI/UX audit layers:
+>   1. **DUPLICATION PREVENTION** (engineer) + **AUDIT 4 — DUPLICATE UI ELEMENTS** (validator): Detects page headers, CTA buttons, social auth sections, and dividers rendered more than once across parent + child component (the "stitching bug"). Adds explicit **wizard navigation ownership rule**: Back/Next/Continue buttons are owned exclusively by the wizard shell — step components must render content only. Validator flags each as `[WARNING]` with a REPAIR HINT identifying which location to remove the duplicate from.
+>   2. **COLOR CONTRAST** (engineer) + **AUDIT 5 — COLOR CONTRAST & VISIBILITY** (validator): Detects `text-white` on light containers (`bg-white`, `bg-gray-50`) and `placeholder:text-white` (invisible placeholder text). Validator flags these as `[CRITICAL]`; unguarded `dark:` Tailwind variants and missing explicit text color on light backgrounds are `[WARNING]`.
+>   3. **`packageContext` injection** (engineer): The concrete list of installed npm packages is now injected directly into the engineer's system prompt, replacing the vague "only use installed packages" instruction. Pre-flight checklist extended from 7 to 9 steps (added step 7: Duplication Check, step 8: Contrast Check).
+> - **Why:** Code review of a generated registration page revealed two runtime-safe but user-visible bugs: (1) the form heading and social auth section appeared twice because both the page wrapper and its child `<RegistrationForm>` independently rendered them (stitching bug); (2) placeholder text was invisible (white-on-white) because `text-white` was inherited from a dark parent theme into a light card.
+> - **Files:**
+>   - `lib/graph/prompts/frontendEngineerPrompts.ts`
+>   - `lib/graph/prompts/validationPrompts.ts`
+>   - `lib/graph/nodes/engineerNode.ts`
+
+---
+
+### ⚡ Performance
+
+---
+
+> ### Engineer Loop Efficiency — 4 Targeted Fixes
+>
+> - **What changed:** Four changes to `engineerNode.ts` that reduce wasted inline validation cycles, identified from real execution logs (KUAILABS-41):
+>   1. **Critical-only inline acceptance** — Changed pass criterion from `crit === 0 && warn === 0` to `crit === 0`. Files with 0 criticals are accepted immediately; warnings are deferred to the external validator which has sibling context and produces more actionable repair hints. Removed the now-unnecessary `WARNING_LENIENCY_ROUND` constant and `isLenient` variable from `engineerNode`.
+>   2. **Skip patch mode for cross-file errors** — Added `CROSS_FILE_PATTERN` regex that detects errors describing cross-file structural issues ("sibling", "import path", "duplicate interface", etc.). When matched, the surgical patch attempt is skipped and the engineer falls through to full regen. Patch mode (search-replace) cannot fix cross-file issues; skipping it eliminates a wasted attempt per failing file.
+>   3. **Sibling export injection in revision rounds** — During targeted fix rounds (rounds 2+), the export signatures of clean sibling files are prepended to the engineer's user prompt as a `SIBLING FILE EXPORTS` block. This tells the engineer exactly what interfaces and hooks are exported from sibling files, preventing re-generated conflicting definitions.
+>   4. **Skip inline LLM validation for large files** — Files >10 000 chars bypass the 300s inline LLM validation call entirely and defer to the external validator. Large files consistently timed out the inline call, burning 5 minutes per file for zero additional signal.
+> - **Why:** In KUAILABS-41 logs, round 1 burned up to 57 inline validation calls (3 per file × 19 files) on warning-only and oversized files. These fixes reduce inline calls by ~60% for typical tickets and eliminate large-file timeout waste.
+> - **Files:**
+>   - `lib/graph/nodes/engineerNode.ts`
+
+> ### Reduce Validation Prompt Size (Faster Pro Completion)
+>
+> - **What changed:** Three changes to shrink the prompt sent to the Pro validation model, directly reducing per-file API latency:
+>   1. **Removed `implementationInstructions` from system prompt** — the full EM technical contract (potentially 500–2000 tokens) was sent with every file validation. Only the `validationChecklist` is relevant to the validator; the implementation instructions are the engineer's contract.
+>   2. **Cap sibling context to 8 files, same-directory first** — previously all N-1 siblings were included (510+ lines on an 18-file ticket). Now capped at 8, with same-directory siblings prioritised (most likely to have type dependencies).
+>   3. **Increased CONCURRENCY from 5 → 8** — more files processed in parallel within the pool.
+> - **Why:** Flash model tested and rejected — produces noisy false positives causing extra revision rounds that cost more total time than the per-call savings. Pro with a lean prompt is the fastest end-to-end approach.
+> - **Files:**
+>   - `lib/graph/prompts/validationPrompts.ts`
+>   - `lib/graph/nodes/validationNode.ts`
+
+---
+
+### 🏗️ Architecture
+
+---
+
+> ### Package Dependency Enforcement (`getInstalledPackages` + `checkPackageImports`)
+>
+> - **What changed:** Added a three-layer package dependency enforcement system to prevent generated code from importing npm packages absent from the target project's `package.json`:
+>   1. **`getInstalledPackages()`** — New function in `lib/project-context.ts` that deterministically parses `package.json` (dependencies + devDependencies + peerDependencies) into a `string[]`. Falls back to `[]` on failure (non-blocking).
+>   2. **`installedPackages` state field** — Propagated through `AgentState` from `architectureNode` → `engineerNode` (prompt injection) → `validationNode` (AST check). Reducer keeps non-empty updates, defaults to `[]`.
+>   3. **`checkPackageImports(files, installedPackages)`** — New AST-based function in `lib/graph/ts-cross-file-check.ts`. Extracts bare package names from import statements (handles scoped packages, skips Node.js builtins, relative paths, and `@/` aliases), checks against the installed set. Integrated into `validationNode` as part of the deterministic pre-LLM static check tier alongside `checkCrossFileImports`.
+> - **Why:** `lucide-react` was missing from the target project's `package.json` and had to be manually installed after pulling generated code. The system had no mechanism to verify that imported packages existed in the project.
+> - **Files:**
+>   - `lib/project-context.ts`
+>   - `lib/graph/state.ts`
+>   - `lib/graph/nodes/architectureNode.ts`
+>   - `lib/graph/ts-cross-file-check.ts`
+>   - `lib/graph/nodes/validationNode.ts`
+
+> ### Deterministic Cross-File Import Checker (`ts-cross-file-check.ts`)
+>
+> - **What changed:** Created `lib/graph/ts-cross-file-check.ts` with `checkCrossFileImports(allGeneratedFiles, filesToCheck)`. Uses the TypeScript AST API (`ts.createSourceFile`, `ts.forEachChild`) to build an export catalog for every generated file, then validates each import statement in `filesToCheck` against that catalog. Integrated into `validationNode.ts` as a deterministic pre-LLM tier: runs before the LLM batch, results are merged into `validationResults` after the LLM pass (additive, wrapped in `try/catch` so any checker failure is non-fatal).
+> - **What it catches (zero false positives):**
+>   - Named import `{ Foo }` from a generated file that only has `export default` — flags with exact line number and a ready-to-paste fix
+>   - Named import `{ Foo }` from a generated file that has no export named `Foo` — lists all available exports
+>   - Default import `Foo` from a generated file that has no default export
+> - **What it ignores:** External packages, project files not in the generated set, and files with `export * from '...'` (wildcard re-exports cannot be enumerated)
+> - **Why:** Wrong import style (named vs default) across generated files is the #1 recurring cross-file error category. A deterministic < 10ms AST check guarantees these errors surface with actionable repair hints every round — even when the LLM validation times out.
+> - **Files:**
+>   - `lib/graph/ts-cross-file-check.ts` (new)
+>   - `lib/graph/nodes/validationNode.ts`
+
+> ### Engineer Node Factory Pattern (`createEngineerNode`)
+>
+> - **What changed:** Extracted all engineer node logic from `frontendEngineerNode.ts` into a new generic `createEngineerNode(config: EngineerConfig)` factory in `lib/graph/nodes/engineerNode.ts`. `frontendEngineerNode.ts` is now an 8-line thin wrapper. The factory accepts a `config` object with `engineerType`, `getSystemPrompt`, `getUserPrompt`, `getPatchPrompt?`, and `modelName?`. Added `engineerType: z.enum(["frontend", "backend", "ai"]).default("frontend")` to `ExecutionPlanSchema` so the EM can specify which engineer to invoke.
+> - **Why:** Previously, adding a new engineer type (backend, AI) would require copy-pasting the entire ~700-line engineer node including all retry logic, patch mode, concurrency, inline validation, and sibling context injection. The factory centralises all of that — new engineer types are thin 8-line wrappers with their own prompt configs.
+> - **Files:**
+>   - `lib/graph/nodes/engineerNode.ts` (new — factory + `EngineerConfig` interface)
+>   - `lib/graph/nodes/frontendEngineerNode.ts` (refactored to thin wrapper)
+>   - `lib/graph/schema.ts` (`engineerType` field added to `ExecutionPlanSchema`)
+
+> ### Multi-Engineer-Type Routing in Graph
+>
+> - **What changed:** Updated `lib/graph/index.ts` to dynamically route to different engineer node types based on the EM's `engineerType` output. Added `getEngineerNodeName(state)` helper and `ENGINEER_TARGETS` array. All conditional edges from `designNode`, `validationNode`, `updateJiraMetadataNode`, and `emNode` now use the helper instead of hardcoding `"frontendEngineerNode"`.
+> - **Why:** The graph previously had `frontendEngineerNode` hardcoded in all routing. With the factory pattern in place, the graph needed to dynamically resolve which engineer node to invoke.
+> - **Files:**
+>   - `lib/graph/index.ts`
+
+> ### Engineer Type Selection in EM Prompt
+>
+> - **What changed:** Added an `ENGINEER SELECTION` block to `EM_SYSTEM_PROMPT` instructing the EM to set `engineerType` based on the nature of the work: `"frontend"` for UI/React/Tailwind/browser-side logic, `"backend"` for API routes/database/auth/server-side, `"ai"` for ML pipelines/model integrations/vector stores. Defaults to `"frontend"` when uncertain.
+> - **Why:** The EM outputs `ExecutionPlanSchema` which now includes `engineerType`. Without explicit guidance the EM would not populate this field correctly.
+> - **Files:**
+>   - `lib/graph/prompts/emPrompts.ts`
+
+> ### Fix Perpetual Timeout Loop
+>
+> - **What changed:** Four targeted fixes to break the infinite Engineer → Validation loop caused by files that consistently timeout during API validation:
+>   1. **Strip sibling context on retries**: On `attempt > 1` inside `processBatch`, sibling export context is omitted. The combined prompt (17 sibling files × 30 lines + file content) was the primary cause of 300s timeouts. Retries now send only the file itself — dramatically smaller prompt, much higher completion rate.
+>   2. **Lenient mode accepts timeout-only failures**: In round ≥ 5, files whose only critical errors are `"Validation process failed"` (pure API timeouts, no real TypeScript errors) are accepted as-is. The engineer already inline-validated them 3 times; the outer validator cannot add more signal.
+>   3. **Surgical context seeded from `filesNeedingRevision`**: Timeout-failing file paths were never included in `surgicalContext.failingFilePaths` because the regex parsed `"Validation process failed"` and found no embedded path. Now `failingFiles` is seeded directly from `filesNeedingRevision` before regex parsing.
+>   4. **Carry forward `filesNeedingRevision` on 0-file engineer runs**: When surgical context has no files to generate (EM said "no changes needed"), the engineer returned `filesNeedingRevision: []`, which caused the validation ledger to re-validate ALL files. Now it carries forward the previous `filesNeedingRevision`.
+> - **Files:**
+>   - `lib/graph/nodes/validationNode.ts`
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+
+> ### Hard Cap Survives Surgical EM Resets (`totalRoundCount`)
+>
+> - **What changed:** Added `totalRoundCount` state field (never resets). The engineer node increments it alongside `roundCount`. `shouldContinue` now uses `totalRoundCount >= 15` for the hard cap instead of `roundCount`. Previously, `emNode` reset `roundCount: 0` on surgical escalation, which also reset the hard cap — allowing the pipeline to loop indefinitely through repeated EM passes.
+> - **Removed:** Dead `validationCrashed: false` write from `emNode` (field was removed in session 3).
+> - **Files:**
+>   - `lib/graph/state.ts`
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/graph/nodes/emNode.ts`
+>   - `lib/graph/index.ts`
+
+> ### Remove Validation Self-Loop — Crash Retries Absorbed Within Node
+>
+> - **What changed:** The `validationNode -.-> validationNode` self-loop has been removed from the graph. The outer `catch` block in `validationNode` previously set `validationCrashed: true` and relied on `shouldContinue` to route back for up to 3 retries. Per-file retries were already handled internally by `processBatch` (up to `MAX_FILE_RETRIES=3`). Catastrophic node-level crashes now absorb within the node: all pending files are marked as `needsRevision: true` and the normal engineer retry flow handles recovery — no graph-level self-loop needed.
+> - **Why:** Nodes should be self-contained. Routing loops that exist solely to retry a node's own internal failures leak implementation detail into the graph topology and add unnecessary state fields.
+> - **Removed:** `validationCrashed` and `validationCrashCount` state fields; crash-retry branch in `shouldContinue`; `"validationNode"` from conditional edges array.
+> - **Files:**
+>   - `lib/graph/nodes/validationNode.ts`
+>   - `lib/graph/state.ts`
+>   - `lib/graph/index.ts`
+
+---
+
+### 🧹 Refactors
+
+---
+
+> ### File Count Indexes in Engineer and Validation Logs
+>
+> - **What changed:** Added `[N/total]` file count tags to all per-file log lines inside `withConcurrency` in `engineerNode.ts` and inside `processBatch` in `validationNode.ts`. Example: `[3/19] Generating src/components/OnboardingStep.tsx...`.
+> - **Why:** With 19 files processed concurrently, logs showed repeated file names with no indication of batch progress. The index tag makes it immediately clear which file is being worked on and how many remain.
+> - **Files:**
+>   - `lib/graph/nodes/engineerNode.ts`
+>   - `lib/graph/nodes/validationNode.ts`
+
+---
+
 ## 🗓️ **2026-02-28**
+---
+
+### ⚡ Performance
+
+---
+
+> ### Concurrency Pool — Throttled Parallelism (Both Nodes)
+>
+> - **What changed:** Replaced unbounded `Promise.all` / `Promise.allSettled` in both `frontendEngineerNode` and `validationNode` with a lightweight `withConcurrency(limit=5)` pool. New slots open immediately as any file completes — no straggler blocking the next batch.
+> - **Why:** The previous approach fired all N files simultaneously (e.g. 14 concurrent Pro API calls), saturating rate limits and causing cascading timeouts. Capping at 5 concurrent calls prevents API throttling while still processing files in parallel.
+> - **Files:**
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/graph/nodes/validationNode.ts`
+
+> ### Validation Ledger — Skip Clean Files on Revision Rounds
+>
+> - **What changed:** `frontendEngineerNode` now returns `filesNeedingRevision: uniqueFiles` (the exact set of files regenerated that round) instead of always clearing the list to `[]`. `validationNode` already had the logic to re-validate only files in `filesNeedingRevision` — it was just never being populated.
+> - **Why:** On every revision round the outer validator was re-checking all files even though only 1–2 had changed. On a 6-file ticket with 2 failing files, this was 4 unnecessary Pro API calls per revision round.
+> - **Files:**
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+
+---
+
+### 🛡️ Reliability
+
+---
+
+> ### Typed Error Classification in Surgical Context
+>
+> - **What changed:** Added `systemErrors: z.array(z.string())` to `SurgicalContextSchema`. In `validationNode`, `criticalErrors` are now split at source: timeout/crash strings go to `systemErrors`; real TypeScript/runtime bugs go to `errorLogs`. The EM surgical prompt now shows a `NOTE` when system errors are present, clearly labelling them as transient retries rather than code bugs.
+> - **Why:** Previously, timeout strings like `"Validation process failed (timeout or crash)"` were passed directly to the EM as `errorLogs`. The EM had no way to distinguish a transient system failure from a real bug, causing it to hallucinate infrastructure fixes (e.g. patching `next.config.js`) for what were actually Gemini API timeouts.
+> - **Files:**
+>   - `lib/graph/schema.ts`
+>   - `lib/graph/nodes/validationNode.ts`
+>   - `lib/graph/prompts/emPrompts.ts`
+
+> ### Attention-Directed Validation for Revised Files
+>
+> - **What changed:** When `validationNode` re-validates a file that was in `filesNeedingRevision`, it now prepends a `FOCUS:` hint to the user prompt: "This file was revised to fix prior errors — give extra scrutiny to sections that changed, but still validate the full file."
+> - **Why:** Directs the LLM's attention to where bugs were concentrated without skipping any region of the file, improving per-round catch rate on revision rounds.
+> - **Files:**
+>   - `lib/graph/nodes/validationNode.ts`
+
+---
+
+### ✨ Features
+
+---
+
+> ### EM File Decomposition Rule
+>
+> - **What changed:** Added a mandatory `FILE DECOMPOSITION RULE` to `EM_SYSTEM_PROMPT`. Any component or module expected to exceed ~150 lines must be decomposed into a component shell + custom hook + sub-components. All decomposed files must be listed in `newFilesToCreate`/`filesToModify`.
+> - **Why:** Large files (300+ line forms, dashboards, data tables) consistently exceeded the model's comfortable reasoning window, producing incomplete code and validation timeouts. Decomposition keeps each file under the cognitive ceiling and produces architecturally correct React (hooks separation pattern) while reusing all existing quality gates.
+> - **Files:**
+>   - `lib/graph/prompts/emPrompts.ts`
+
+---
+
+### 🐛 Fixes
+
+---
+
+> ### Fix EM Node Reporting Zero Tokens
+>
+> - **What changed:** Switched `emNode` from a dead `const tokenUsage = { prompt: 0, completion: 0, total: 0 }` placeholder to `withStructuredOutput(..., { includeRaw: true })` + `extractTokenUsage(raw)` — same pattern as `validationNode` and `frontendEngineerNode`.
+> - **Why:** `emNode` always reported 0 input/output tokens in the metrics table. The fix gives accurate cost tracking for EM calls, which are Pro model calls and the most expensive in surgical escalation rounds.
+> - **Files:**
+>   - `lib/graph/nodes/emNode.ts`
+
+> ### Fix `Object.keys` on UI Library Array in EM Prompt
+>
+> - **What changed:** Replaced `Object.keys(architectureProfile.systemIntegrity.uiLibrary).join(", ")` with `architectureProfile.systemIntegrity.uiLibrary.map((c) => c.name).join(", ")`.
+> - **Why:** `systemIntegrity.uiLibrary` is `Array<{name, path}>` not a Record. `Object.keys` on an array returns `["0", "1", "2", ...]` (indices), so the EM was receiving `"0, 1, 2"` instead of `"Button, Toast, Dialog"` as the list of available UI components — silently degrading every EM prompt.
+> - **Files:**
+>   - `lib/graph/prompts/emPrompts.ts`
+
+> ### Remove `joinNode` — Simplify Graph to Direct Edges
+>
+> - **What changed:** Deleted `joinNode` from the graph and replaced its two hops with direct edges: Low complexity now routes `updateJiraMetadataNode → frontendEngineerNode`; High/Med routes `designNode → frontendEngineerNode`. `joinNode.ts` is now unused (file preserved, but no longer wired in).
+> - **Why:** `joinNode` was a vestigial "parallel sync gate" from an earlier design that had fan-out branches. The fan-out was removed in a prior refactor but the node was kept. It had no logic — both code paths always went unconditionally to `frontendEngineerNode`. Every ticket was spending one extra LangGraph node invocation for a no-op passthrough. Graph is now 10 nodes, zero orphaned nodes or redundant edges.
+> - **Files:**
+>   - `lib/graph/index.ts`
+
+> ### Extract `withConcurrency` to Shared Utility
+>
+> - **What changed:** Moved the `withConcurrency` pool function into a new `lib/graph/concurrency.ts` module and replaced the two identical inline definitions in `frontendEngineerNode.ts` and `validationNode.ts` with imports. The callback in `frontendEngineerNode` now pushes results into `fileResults` directly instead of returning them (adapting to `fn: (item) => Promise<void>`).
+> - **Why:** The function was copy-pasted with slightly different type signatures. A single generic `withConcurrency<T>` handles both. Any future changes to the pool algorithm have one edit point.
+> - **Files:**
+>   - `lib/graph/concurrency.ts` (new)
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+>   - `lib/graph/nodes/validationNode.ts`
+
+> ### Webhook Error Rollback — Prevent Stuck "In Progress" Tickets
+>
+> - **What changed:** Added a rollback block to the `webhook/route.ts` outer catch handler. On any unhandled error (graph crash, Jira/GitHub API failure, etc.) the handler now: (1) adds a failure comment to the Jira ticket, (2) transitions the ticket back to "Selected for Development", and (3) clears the `agent_update` cache flag so the ticket can be re-processed after a manual reset.
+> - **Why:** Previously, any unexpected error left the ticket permanently "In Progress" with no visible indication of failure — requiring manual inspection of server logs and a manual Jira reset. The rollback mirrors the behavior already present in `process-ticket/route.ts`.
+> - **Files:**
+>   - `app/api/webhook/route.ts`
+
+> ### Extract Shared Performance Logger (`logPerformanceReport`)
+>
+> - **What changed:** Extracted the ~55-line performance reporting block (table of per-node call counts, durations, token usage, and estimated cost) from both route handlers into a single `logPerformanceReport(metrics, ticketId, summary, extra?)` function in `lib/graph/metrics-utils.ts`. Both routes now call it with one line.
+> - **Why:** The identical block was copy-pasted between `process-ticket/route.ts` and `webhook/route.ts`. Any future changes to the report format (new columns, cost model updates) would have required updating both files in sync.
+> - **Files:**
+>   - `lib/graph/metrics-utils.ts`
+>   - `app/api/process-ticket/route.ts`
+>   - `app/api/webhook/route.ts`
+
+> ### Track Inline Validation Tokens Inside Engineer Node
+>
+> - **What changed:** Added `includeRaw: true` to `structuredValidationModel` inside `frontendEngineerNode` and extracted token usage from each inline validation call via `extractTokenUsage(validationResult.raw)`, accumulating it into `fileUsage` alongside the generation tokens.
+> - **Why:** Each per-file generate→validate cycle in the engineer node fires a Pro model validation call after every generation attempt. These were previously invisible in the metrics table (reported as 0) because the structured model returned only the parsed result without the raw `BaseMessage` needed for token extraction. On a 6-file ticket with 2 attempts each, this silently hid 12 Pro model calls from cost tracking.
+> - **Files:**
+>   - `lib/graph/nodes/frontendEngineerNode.ts`
+
+> ### Standardize Token Tracking Across All Pipeline Nodes
+>
+> - **What changed:** Switched all remaining nodes (`pmNode`, `designNode`, `triageNode`, `architectureNode`) from the callback-based `createTokenUsageCallback` approach to `withStructuredOutput(..., { includeRaw: true })` + `extractTokenUsage(raw)`. `triageNode` sums tokens from two sequential invocations (classification + fast-path planning) when Low complexity is detected.
+> - **Why:** `createTokenUsageCallback` is unreliable whenever `invoke()` is wrapped in `Promise.race` (as in the validation/engineer nodes). Standardizing on `includeRaw: true` across the entire pipeline guarantees accurate token metrics for all nodes and enables correct cost estimation in the performance table.
+> - **Files:**
+>   - `lib/graph/nodes/pmNode.ts`
+>   - `lib/graph/nodes/designNode.ts`
+>   - `lib/graph/nodes/triageNode.ts`
+>   - `lib/graph/nodes/architectureNode.ts`
 
 ---
 

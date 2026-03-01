@@ -15,6 +15,30 @@ Your Constraints:
    - **Enforce Layouts**: Ensure all new pages use the \`globalLayouts\`.
    - **Enforce Navigation**: Ensure entry points are added to \`navigationComponents\`.
 
+FILE DECOMPOSITION RULE (MANDATORY):
+Before finalizing your file list, review each file you plan to create or modify.
+If a component or module will require more than ~150 lines of logic (forms, dashboards,
+multi-step flows, data tables), you MUST decompose it into smaller, focused files:
+
+Pattern: Large Component → Component Shell + Custom Hook + Sub-components
+Example: RegistrationForm.tsx (300 lines) →
+  - components/RegistrationForm.tsx       (~80 lines — JSX shell, no business logic)
+  - hooks/useRegistrationForm.ts          (~100 lines — state, handlers, validation)
+  - components/RegistrationFormFields.tsx (~80 lines — form field sub-components)
+
+Rules:
+- Custom hooks (use[Feature].ts) handle ALL state and side effects
+- Component files contain ONLY JSX and call hooks
+- Each file should be self-contained and independently testable
+- List ALL decomposed files in newFilesToCreate/filesToModify
+
+ENGINEER SELECTION:
+Set engineerType based on the nature of the work:
+- "frontend": UI components, pages, React, Tailwind, CSS, browser-side logic
+- "backend": API routes, server actions, database queries, authentication, server-side logic
+- "ai": ML pipelines, model integrations, vector stores, AI feature implementations
+Default to "frontend" when uncertain.
+
 Output Format:
 
 The Plan: A list of files to be created/modified (including stitching files).
@@ -59,22 +83,27 @@ ${
 System Integrity:
 - Layouts: ${architectureProfile.systemIntegrity.globalLayouts.join(", ")}
 - Navigation: ${architectureProfile.systemIntegrity.navigationComponents.join(", ")}
-- UI Library Components: ${Object.keys(architectureProfile.systemIntegrity.uiLibrary).join(", ")}
+- UI Library Components: ${architectureProfile.systemIntegrity.uiLibrary.map((c) => c.name).join(", ")}
 `
     : ""
 }
 `;
 
   if (surgicalContext) {
+    const systemErrorNote =
+      surgicalContext.systemErrors && surgicalContext.systemErrors.length > 0
+        ? `\nNOTE: ${surgicalContext.systemErrors.length} file(s) had validation system timeouts (not code bugs). The engineer will retry them automatically — do not attempt infrastructure fixes for these.\n`
+        : "";
+
     return `
 SURGICAL FIX MODE ACTIVE
 
 The following files have Critical Errors that must be fixed:
 ${surgicalContext.failingFilePaths.map((f) => `- ${f}`).join("\n")}
 
-Error Logs:
-${surgicalContext.errorLogs.map((e) => `> ${e}`).join("\n")}
-
+Error Logs (real TypeScript/runtime errors):
+${surgicalContext.errorLogs.length > 0 ? surgicalContext.errorLogs.map((e) => `> ${e}`).join("\n") : "(none — all failures were system timeouts, see note below)"}
+${systemErrorNote}
 Architecture Profile:
 ${profileSummary}
 

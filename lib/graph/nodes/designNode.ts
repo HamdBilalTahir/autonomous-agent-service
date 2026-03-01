@@ -6,7 +6,7 @@ import {
   getDesignUserPrompt,
 } from "../prompts/designPrompts";
 import { DesignSpecificationsSchema } from "../schema";
-import { createTokenUsageCallback } from "../metrics-utils";
+import { extractTokenUsage } from "../metrics-utils";
 
 /**
  * The Design Agent node.
@@ -38,11 +38,11 @@ export async function designNode(state: typeof AgentState.State) {
     temperature: 0.2, // Low temperature for consistent design systems
   });
 
-  // Create a structured output model
   const structuredModel = model.withStructuredOutput(
     DesignSpecificationsSchema,
     {
       name: "create_design_specifications",
+      includeRaw: true,
     },
   );
 
@@ -82,23 +82,16 @@ ${executionPlan.implementationInstructions}
     JSON.stringify({ userPrompt }, null, 2),
   );
 
-  // Generate the design specifications
-  let tokenUsage = { prompt: 0, completion: 0, total: 0 };
-  const TokenHandler = createTokenUsageCallback(tokenUsage);
-
   const systemPrompt = surgicalContext
     ? DESIGN_SURGICAL_SYSTEM_PROMPT
     : DESIGN_SYSTEM_PROMPT;
 
-  const result = await structuredModel.invoke(
-    [
-      ["system", systemPrompt],
-      ["user", userPrompt],
-    ],
-    {
-      callbacks: [new TokenHandler()],
-    },
-  );
+  const { raw, parsed: result } = await structuredModel.invoke([
+    ["system", systemPrompt],
+    ["user", userPrompt],
+  ]);
+
+  const tokenUsage = extractTokenUsage(raw);
 
   console.log(
     `✅ [Design Node][${state.ticketId}] Design Specifications Generated:`,
