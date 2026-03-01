@@ -333,6 +333,66 @@ Generate a concise Execution Plan.
       ? JSON.stringify(designSpecifications, null, 2)
       : undefined;
 
+    // Build an import-relevant tree slice for the engineer's system prompt.
+    // The full tree is injected into every concurrent file generation call, so
+    // an uncapped 500-file project would add ~15k chars × 20 files = 300k extra
+    // tokens. We only need the paths the engineer will import from — not pages,
+    // API routes, or config files.
+    //
+    // Priority buckets (highest → lowest):
+    //   1. components/ui/ & components/shared/  — UI primitives the engineer can import
+    //   2. hooks/                               — custom hooks to reuse, not reinvent
+    //   3. lib/ / utils/ / constants/           — helper utilities
+    //   4. types/ / store/ / context/ / services/ — type defs & state
+    //   5. app/ pages (page.tsx / layout.tsx)   — routing awareness, duplicate prevention
+    // API routes (app/api/) and config files are excluded entirely.
+    const cappedCodebaseTree = (() => {
+      if (!state.codebaseTree) return undefined;
+      const lines = state.codebaseTree.split("\n").filter((l) => l.trim());
+
+      const bucket1 = lines.filter(
+        (l) => l.includes("components/ui/") || l.includes("components/shared/"),
+      );
+      const bucket2 = lines.filter(
+        (l) => l.includes("hooks/") || l.includes("/hooks/"),
+      );
+      const bucket3 = lines.filter(
+        (l) =>
+          l.includes("/lib/") ||
+          l.includes("/utils/") ||
+          l.includes("/constants/"),
+      );
+      const bucket4 = lines.filter(
+        (l) =>
+          l.includes("/types/") ||
+          l.includes("/store/") ||
+          l.includes("/context/") ||
+          l.includes("/services/") ||
+          l.includes("/auth/") ||
+          l.includes("/providers/") ||
+          l.includes("/schemas/") ||
+          l.includes("/actions/"),
+      );
+      // Pages: routing awareness and duplicate prevention, but exclude API routes
+      const bucket5 = lines
+        .filter(
+          (l) =>
+            (l.includes("page.tsx") || l.includes("layout.tsx")) &&
+            !l.includes("/api/"),
+        )
+        .slice(0, 30);
+
+      const seen = new Set<string>();
+      const result: string[] = [];
+      for (const line of [...bucket1, ...bucket2, ...bucket3, ...bucket4, ...bucket5]) {
+        if (!seen.has(line) && result.length < 120) {
+          seen.add(line);
+          result.push(line);
+        }
+      }
+      return result.length > 0 ? result.join("\n") : undefined;
+    })();
+
     const fullExecutionPlan =
       stateFullExecutionPlan ||
       `
@@ -368,11 +428,19 @@ ${(executionPlan?.filesToModify || []).join("\n")}
       const fileIndex = uniqueFiles.indexOf(filePath) + 1;
       const fileTag = `[${fileIndex}/${uniqueFiles.length}]`;
 
+      // Design specs are visual guidelines — types, hooks, utils, and API routes
+      // don't render UI and don't benefit from color/typography specifications.
+      // Skipping them for non-UI files saves ~4k chars per call.
+      const isUiFile =
+        filePath.includes("components/") ||
+        filePath.includes("page.tsx") ||
+        filePath.includes("layout.tsx");
+
       const systemPrompt = config.getSystemPrompt(
         filePath,
         contextString,
-        designSpecsString,
-        state.codebaseTree,
+        isUiFile ? designSpecsString : undefined,
+        cappedCodebaseTree,
         architectureProfile,
         state.installedPackages,
       );
@@ -522,10 +590,25 @@ ${(executionPlan?.filesToModify || []).join("\n")}
           ? `SIBLING FILE EXPORTS (do NOT redefine these — import from these exact paths instead):\n${siblingExports}\n\n---\n${rawUserPrompt}`
           : rawUserPrompt;
 
-        const genResult = await model.invoke([
-          ["system", systemPrompt],
-          ["user", userPrompt],
-        ]);
+        const genResult = await Promise.race([
+          model.invoke([
+            ["system", systemPrompt],
+            ["user", userPrompt],
+          ]),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error("Generation timeout")),
+              INLINE_VALIDATION_TIMEOUT_MS,
+            ),
+          ),
+        ]).catch((e) => {
+          console.warn(
+            `⚠️ [${label}][${state.ticketId}] ${fileTag} ${filePath} generation failed on attempt ${attempt + 1}: ${e instanceof Error ? e.message : e}. Skipping — external validator will retry.`,
+          );
+          return null;
+        });
+
+        if (!genResult) break;
 
         const usage = extractTokenUsage(genResult) ?? {
           prompt: 0,

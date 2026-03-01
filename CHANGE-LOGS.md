@@ -2,6 +2,168 @@
 
 ---
 
+### 🐛 Fixes
+
+---
+
+> ### Validation — Strict Prop-Derived Array Safety (Audit 1)
+>
+> - **What changed:** Strengthened **Audit 1** in the validation prompt to flag ALL unguarded array iterations on prop/state/API variables as `[CRITICAL]`, regardless of TypeScript types.
+> - **Why:** The previous rule only flagged variables "not typed as a concrete array". `slots.forEach(...)` was passing because `slots` was typed as `BookingSlot[]` in the interface, but at runtime `slots` was `undefined` (parent hadn't loaded data yet), causing a crash. The new rule assumes all external data is potentially undefined and demands optional chaining (`?.`) or a fallback (`?? []`) for every iteration.
+> - **Files:**
+>   - `lib/graph/prompts/validationPrompts.ts`
+
+---
+
+### 🔧 Improvements
+
+---
+
+> ### EM + Engineer — Mandatory File Size Discipline (~200 lines / ~6,000 chars hard limit)
+>
+> - **What changed:** Two-layer fix to prevent large files from being planned or generated in the first place:
+>   1. **EM Prompt** (`emPrompts.ts`): Replaced vague "~150 lines of logic" guidance with 4 mandatory, concrete decomposition rules + a hard limit of ~200 lines / ~6,000 chars per file:
+>      - **Rule 1** — Component + logic separation: any component that manages state or calls APIs must split into JSX shell + `hooks/use[Feature].ts`
+>      - **Rule 2** — Modal/Drawer/Sheet: wrapper shell + content sub-component + hook; 2+ distinct steps/views → each view is its own file
+>      - **Rule 3** — Pages are thin orchestrators (~40-60 lines): layout shell + content component + hook
+>      - **Rule 4** — 3+ distinct visual sections → each section is its own sub-component file
+>      - Three domain-neutral decomposition examples covering the most common file types: **(A)** feature modal with form, **(B)** multi-step flow/wizard, **(C)** data page with filters and table — applicable to any user story (auth, e-commerce, admin, social, dashboards, etc.)
+>   2. **Engineer Prompt** (`frontendEngineerPrompts.ts`): Added `FILE SIZE DISCIPLINE` block — if implementing this file would exceed ~200 lines, stop; that means you are writing another file's responsibility. Component files contain only JSX; page files contain only layout structure.
+> - **Why:** `PaymentMethodModal.tsx` (9,385 chars) and `CancellationFlowModal.tsx` caused 300s validation timeouts on both inline and external validation passes. Root cause is file size — big files take longer to generate and longer to validate. Fix upstream at the planning stage prevents the problem from occurring rather than handling it reactively.
+> - **Files:**
+>   - `lib/graph/prompts/emPrompts.ts`
+>   - `lib/graph/prompts/frontendEngineerPrompts.ts`
+
+---
+
+> ### Validation Node — Audit 9: Flow Coherence (UX Gut-Check)
+>
+> - **What changed:** Added **Audit 9** — a domain-universal UX gut-check that catches things that compile and run but make a real user feel confused, stuck, or frustrated. Applies to any user story type (auth, settings, dashboards, e-commerce, social, admin, onboarding, etc.). 16 checks across 5 categories:
+>
+>   **Completion & Navigation (3)**
+>   1. Success state with no next step — "Done" screen with no CTA or redirect
+>   2. Multi-step flow with no progress indicator — `currentStep` state but no counter/bar/breadcrumb
+>   3. Page with no `<h1>` — user lands with zero orientation cue
+>
+>   **Forms & Input (3)**
+>   4. Form wiped on error — `catch` block calling `reset()`, user loses all input on network failure
+>   5. Validation errors on mount — required/error states shown before user has interacted with anything
+>   6. Disabled button with no explanation — greyed-out control, no `title`, no adjacent helper text
+>
+>   **Lists, Data & Context (4)**
+>   7. Filter/sort controls above an empty list — controls for data that doesn't exist yet
+>   8. Raw number with no label/unit — `{count}` or `{value}` with no surrounding context
+>   9. Truncated text with no tooltip — `truncate`/`line-clamp` with no `title` attribute
+>   10. Weak empty state — "No items" with no explanation of why or what to do next
+>
+>   **Interactions & Affordances (4)**
+>   11. Clickable element with no affordance — `onClick` card/row with no `cursor-pointer` or hover style
+>   12. Confirmation dialog without item name — "Are you sure?" with no name/preview of what's being affected
+>   13. Bulk action without count — "Delete all" confirmation that doesn't say how many items will be deleted
+>   14. Opt-in feature defaulted to on — notifications/analytics/marketing toggle initialized to `true`
+>
+>   **Buttons & Hierarchy (2)**
+>   15. Generic CTA label — "Submit", "OK", "Confirm" where a descriptive outcome label is possible
+>   16. Flat button hierarchy — primary and secondary/destructive actions with identical `variant`
+>
+> - **Cost:** Zero extra API calls. Same single validation pass, same concurrency. ~60 additional lines in the system prompt.
+> - **Files:**
+>   - `lib/graph/prompts/validationPrompts.ts`
+
+---
+
+> ### Validation Node — Audit 8: Human QA Scan
+>
+> - **What changed:** Added **Audit 8** to the validation system prompt — a human QA lens applied to all JSX-rendering files (components, pages, layouts). Skipped automatically for types, hooks, utils, and API routes. Seven checks that catch issues a code reviewer misses but a QA tester clicking through the app would immediately notice:
+>   1. **Destructive actions without confirmation** — Delete/Remove/Cancel buttons that fire directly with no `AlertDialog`, confirmation state, or intermediate step
+>   2. **Uncloseable modals/drawers** — `<Dialog>`, `<Sheet>`, `<Drawer>` with no X button, no `onOpenChange` dismiss, and no backdrop handler
+>   3. **Icon-only buttons without `aria-label`** — `<button><Trash2 /></button>` is invisible to screen readers and keyboard users
+>   4. **Hardcoded dummy data in JSX** — `"John Doe"`, `"test@example.com"`, `"Lorem ipsum"` rendered directly in the UI
+>   5. **Placeholder JSX text** — `TODO:`, `FIXME:`, or `...` string literals visible to end users
+>   6. **Unlabelled form inputs** — inputs with no `<label>` and no `aria-label` (placeholder alone vanishes on focus)
+>   7. **Step count mismatch** — wizard step indicator showing a different count than the number of step components rendered
+> - **Why:** Audits 1–7 catch what a static code reviewer sees (type errors, import syntax, color classes, duplicate elements). Audit 8 catches what only shows up when you actually use the feature — a modal you can't dismiss, a delete button that skips confirmation, an input you can't identify after clicking it. All checks are [WARNING] level so they don't block builds; they feed repair hints back to the engineer.
+> - **Cost:** Zero extra API calls. Audit 8 runs in the same validation pass as Audits 1–7 — it adds ~50 lines to the system prompt but no additional model invocations.
+> - **Files:**
+>   - `lib/graph/prompts/validationPrompts.ts`
+
+---
+
+> ### Engineer Node — Prompt Size Reduction & Generation Reliability
+>
+> - **What changed:** Three targeted improvements to reduce token overhead per file and prevent generation hangs:
+>   1. **Priority-bucketed codebase tree** (`cappedCodebaseTree`): Replaced a flat first-200-lines slice (which gave pages/API routes — noise) with a 5-bucket filter that guarantees the engineer always sees the paths it actually imports from — `components/ui/`, `components/shared/`, `hooks/`, `lib/`, `utils/`, `constants/`, `types/`, `store/`, `context/`, `services/`, `auth/`, `providers/`, `schemas/`, `actions/`, and pages (capped at 30, no API routes). Total ceiling: 120 lines of 100% relevant paths.
+>   2. **Design specs scoped to UI files only**: JSON design specs (~4k chars) are now only injected into files that render UI (`components/`, `page.tsx`, `layout.tsx`). Types files, hooks, and utils had no use for color palettes or animation specs — removing them from those calls saves ~4k chars per non-UI file generation.
+>   3. **Generation timeout**: Wrapped `model.invoke()` with the same `INLINE_VALIDATION_TIMEOUT_MS` ceiling already used for validation. Previously, if the Gemini API hung (rate limit, load spike), the engineer node would wait indefinitely. On timeout the file is skipped with empty content so the external validator catches it and surgical mode retries.
+> - **Why:** The first file in a 20-file round was taking 10+ minutes. Root cause was every file's system prompt containing the full uncapped codebase tree (pages + API routes + config noise) plus JSON design specs regardless of whether the file rendered UI. This pushed prompts to 15,000-30,000 chars per file, slowing Pro model inference and hitting API rate limits. No quality impact — UI files still get full design specs, and the bucketed tree is strictly more relevant than the previous random slice.
+> - **Files:**
+>   - `lib/graph/nodes/engineerNode.ts`
+
+---
+
+> ### Design Node — Active Design Audit & Upgrade Mode
+>
+> - **What changed:** The design node's role expanded from "generate specs for new components" to "audit the existing design and actively upgrade it." New 3-phase approach in `DESIGN_SYSTEM_PROMPT`:
+>   1. **Phase 0 — Design Audit**: Evaluates 6 dimensions before writing a single spec — color palette (generic? poor contrast? missing semantic tokens?), typography (monotone? wrong line heights?), spacing (off 8pt grid?), component states (missing hover/focus/loading?), visual depth (flat? no elevation system?), micro-interactions (instant state changes?).
+>   2. **Phase 1 — Upgrade Strategy**: For each dimension, decides KEEP / REFINE / REPLACE. Output represents the improved version, not the current state.
+>   3. **Phase 2 — Specification**: Full authoritative design contract with WCAG AA contrast, 4+ heading levels, strict 8pt spacing grid, all five component states, ease-out micro-interactions, 44px touch targets, and responsive breakpoints.
+>   - Specs apply to **all files in the sprint** — both new files and existing files in `filesToModify`. When the engineer touches an existing file it must apply the upgraded design, not preserve weak existing styles.
+>   - Each component spec explicitly states what it is upgrading from so the engineer knows to replace old styles rather than merge with them.
+> - **Why:** The design node was producing forward-looking specs but ignoring existing design quality. Flat color palettes, missing states, and off-grid spacing in already-shipped components were never challenged. Now every engineer pass that touches a file is an opportunity to raise the quality bar.
+> - **Files:**
+>   - `lib/graph/prompts/designPrompts.ts`
+
+---
+
+> ### Design Node — Real Project Context & Richer Output
+>
+> - **What changed:** Design node was generating specs in the dark — `architectureProfile` always showed `UI Library: Unknown` because it reads the agent's own filesystem, not the target project. Three improvements:
+>   1. **Installed library detection**: `installedPackages` (fetched from GitHub) is now scanned for confirmed design/animation libraries (`tailwindcss`, `framer-motion`, `@radix-ui`, `@mui`, `antd`, `lucide-react`, etc.). The prompt now tells the model exactly what is available — preventing it from inventing Framer Motion animations on a project that only has CSS, or Shadcn variants that aren't installed.
+>   2. **Design-relevant file injection**: `codebaseTree` is filtered for `globals.css`, `tailwind.config.*`, `components/ui/`, `components/shared/`, `styles/` files (capped at 30 lines). The model can now infer actual design tokens and component conventions from what the project already has.
+>   3. **Richer output logging**: Expanded from 3 lines to full palette, semantic colors, typography scale, spacing grid, animation timings, and each component with its variants and states.
+>   4. **Fixed `systemPrompt` use-before-declare bug**: `systemPrompt` was declared after the `console.log` that referenced `systemPrompt.length`. Reordered to: detect libs → filter files → declare systemPrompt → build userPrompt → log.
+>   5. **Removed `JSON.stringify({ userPrompt })` logging** — same blocking serialization issue fixed in PM/EM nodes.
+> - **Why:** The design node was hallucinating a design system (defaulting to its own Shadcn/Framer Motion preferences) regardless of what the target project actually uses, potentially misleading the engineer with wrong component APIs or unavailable animation libraries.
+> - **Files:**
+>   - `lib/graph/nodes/designNode.ts`
+>   - `lib/graph/prompts/designPrompts.ts`
+
+---
+
+> ### EM Node — Priority-Ordered Component Context
+>
+> - **What changed:** `existingComponents` in `emNode` was an unordered, uncapped list of all `.tsx`/`.jsx` files. Replaced with a 4-bucket priority system (cap: 80 total):
+>   - **Bucket 1** — `components/shared/` and `components/ui/` primitives (highest reuse value — always included first)
+>   - **Bucket 2** — Custom hooks (`hooks/`) — prime reuse candidates for state/data logic
+>   - **Bucket 3** — Feature components (other `components/` paths)
+>   - **Bucket 4** — App pages (`app/*/page.*`) — routing awareness only, capped at 20
+>   - Deduplication across buckets; file-only entries (no bare directory names)
+> - **Why:** With the flat filter, a 200-file project would inject an arbitrary 80-line slice that could miss all shared components and hooks — the very files the EM needs to make reuse decisions. Now shared primitives and hooks always appear first regardless of project size.
+> - **Files:**
+>   - `lib/graph/nodes/emNode.ts`
+
+---
+
+### ⚡ Performance
+
+---
+
+> ### Pipeline Speed Optimisations — Model Tuning, Prompt Bloat & Logging
+>
+> - **What changed:** Three sources of unnecessary latency removed across the planning pipeline:
+>   1. **Flash model for lightweight nodes**: `architectureNode` and `triageNode` switched from Pro to `gemini-3-flash-preview`. Both nodes do structured extraction from configs / ticket text — no deep reasoning required. Pro was being used where Flash is equivalent and 5–10× faster.
+>   2. **Removed full-prompt `JSON.stringify` logging**: `pmNode` and `emNode` were serialising the entire system + user prompt (5–10 k chars) to JSON and printing it before every LLM call. Node.js `console.log` with large objects is synchronous and blocks the event loop. Replaced with a single-line size summary (`system: N chars, user: N chars`).
+>   3. **Capped `existingComponents` in emNode**: The EM prompt was injecting every `.tsx`/`.jsx` file found in the codebase tree with no limit. On a project with 200+ files this adds thousands of tokens before the LLM call. Capped at 80 lines — enough context for the EM to make component reuse decisions.
+> - **Why:** `pmNode` was consistently taking 5–15 minutes. Part of that is Pro model inference time, but the logging and uncapped injections were adding measurable overhead on top and inflating the token count sent to the model.
+> - **Files:**
+>   - `lib/graph/nodes/architectureNode.ts`
+>   - `lib/graph/nodes/triageNode.ts`
+>   - `lib/graph/nodes/pmNode.ts`
+>   - `lib/graph/nodes/emNode.ts`
+>   - `lib/graph/metrics-utils.ts` — updated `NODE_MODEL_MAPPING` (architectureNode → Flash, pmNode → Pro) and renamed pricing key to `GEMINI_3_1_FLASH` to match current model naming
+
+---
+
 ### ✨ Features
 
 ---
@@ -107,6 +269,15 @@
 ---
 
 ### 🏗️ Architecture
+
+---
+
+> ### Redis Cache — Fail-Fast on Unreachable Connection
+>
+> - **What changed:** Added four ioredis connection options to prevent the cache client from hanging the pipeline silently when Redis is unreachable: `maxRetriesPerRequest: 0` (reject commands immediately instead of retrying 20×), `enableOfflineQueue: false` (throw instantly when not connected instead of queuing), `connectTimeout: 3000` (give up TCP handshake after 3s), `lazyConnect: true` (defer connection until first actual use, not at module import time). The existing `try/catch` in `getCached` and `setCached` now actually fires and falls back to the in-memory cache.
+> - **Why:** The architecture node was observed hanging indefinitely at the cache check step. With default ioredis settings, `await redis.get()` never rejects when Redis is unreachable — commands queue up and retry with exponential backoff, silently blocking the entire LangGraph pipeline with no error logged.
+> - **Files:**
+>   - `lib/cache.ts`
 
 ---
 

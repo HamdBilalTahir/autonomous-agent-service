@@ -48,7 +48,7 @@ export async function architectureNode(state: typeof AgentState.State) {
   }
 
   const model = new ChatGoogleGenerativeAI({
-    model: "gemini-3.1-pro-preview",
+    model: "gemini-3-flash-preview",
     apiKey: process.env.GEMINI_API_KEY,
     temperature: 0,
   });

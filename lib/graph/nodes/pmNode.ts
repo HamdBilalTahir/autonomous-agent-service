@@ -43,8 +43,7 @@ export async function pmNode(state: typeof AgentState.State) {
   );
 
   console.log(
-    `[PM Node][${state.ticketId}] Sending Prompt to LLM:`,
-    JSON.stringify({ systemPrompt, userPrompt }, null, 2),
+    `[PM Node][${state.ticketId}] Sending prompt to LLM — system: ${systemPrompt.length} chars, user: ${userPrompt.length} chars`,
   );
 
   // Generate the feature list

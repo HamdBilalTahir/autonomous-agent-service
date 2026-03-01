@@ -39,21 +39,49 @@ export async function emNode(state: typeof AgentState.State) {
     includeRaw: true,
   });
 
-  // Extract likely components from codebaseTree
-  // Assuming codebaseTree is a string representation of file structure
-  const existingComponents = codebaseTree
-    ? codebaseTree
-        .split("\n")
-        .filter(
-          (line) =>
-            line.includes("components/") ||
-            line.includes(".tsx") ||
-            line.includes(".jsx") ||
-            line.includes(".vue") ||
-            line.includes(".py"), // Covers various frameworks
-        )
-        .join("\n")
-    : "No existing components detected.";
+  // Build a priority-ordered component list for the EM.
+  // Pages (app/) are entry points, not reusable — they come last and are capped small.
+  // Shared/UI primitives and hooks are the highest-value context for reuse decisions.
+  const existingComponents = (() => {
+    if (!codebaseTree) return "No existing components detected.";
+
+    const lines = codebaseTree.split("\n").filter((l) => {
+      const t = l.trim();
+      return t && /\.[a-z]+$/i.test(t); // files only, no bare directory entries
+    });
+
+    // Bucket 1 — shared/UI primitives (Button, LoadingSkeleton, ToastNotification…)
+    const sharedUi = lines.filter(
+      (l) => l.includes("components/shared/") || l.includes("components/ui/"),
+    );
+
+    // Bucket 2 — custom hooks (always good reuse candidates)
+    const hooks = lines.filter((l) => l.includes("hooks/") || l.includes("/hooks/"));
+
+    // Bucket 3 — other feature components (not shared/ui, not pages)
+    const featureComponents = lines.filter(
+      (l) =>
+        l.includes("components/") &&
+        !l.includes("components/shared/") &&
+        !l.includes("components/ui/"),
+    );
+
+    // Bucket 4 — app pages (routing awareness only; capped at 20 to save tokens)
+    const pages = lines
+      .filter((l) => (l.includes("/app/") || l.includes("app/")) && l.includes("page."))
+      .slice(0, 20);
+
+    // Merge priority buckets, deduplicate, hard cap at 80 total
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const line of [...sharedUi, ...hooks, ...featureComponents, ...pages]) {
+      if (!seen.has(line) && result.length < 80) {
+        seen.add(line);
+        result.push(line);
+      }
+    }
+    return result.join("\n") || "No existing components detected.";
+  })();
 
   // System prompt
   const systemPrompt = surgicalContext
@@ -69,8 +97,7 @@ export async function emNode(state: typeof AgentState.State) {
   );
 
   console.log(
-    `[EM Node][${state.ticketId}] Sending Prompt to LLM:`,
-    JSON.stringify({ systemPrompt, userPrompt }, null, 2),
+    `[EM Node][${state.ticketId}] Sending prompt to LLM — system: ${systemPrompt.length} chars, user: ${userPrompt.length} chars`,
   );
 
   // Generate the execution plan

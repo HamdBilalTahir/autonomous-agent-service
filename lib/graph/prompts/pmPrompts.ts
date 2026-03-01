@@ -118,12 +118,35 @@ Use this map to:
 `
     : "";
 
-  const fileTreeSection = codebaseTree
-    ? `
-**PROJECT FILE STRUCTURE (use this to understand the current page and component landscape):**
-${codebaseTree}
+  // Filter the raw file tree to only what the PM needs: routes and shared components.
+  // Strips directory entries (no extension), lock files, configs, public assets, etc.
+  // This prevents injecting thousands of irrelevant lines that inflate token count.
+  const filteredTree = codebaseTree
+    ? codebaseTree
+        .split("\n")
+        .filter((line) => {
+          const trimmed = line.trim();
+          if (!trimmed) return false;
+          // Must have a file extension — skip bare directory entries
+          if (!/\.[a-z]+$/i.test(trimmed)) return false;
+          // Only include app routes and components (the PM's domain)
+          return (
+            /\/app\//.test(trimmed) ||
+            /^app\//.test(trimmed) ||
+            /\/components\//.test(trimmed) ||
+            /^components\//.test(trimmed)
+          );
+        })
+        .slice(0, 120) // hard cap — prevents very large projects from bloating the prompt
+        .join("\n")
+    : "";
 
-Use this to identify which existing files would be impacted by the new feature and which global components (sidebar, navbar, auth guard) already exist and must be updated ([IMPACT] tasks).
+  const fileTreeSection = filteredTree
+    ? `
+**KEY PROJECT FILES (routes and shared components only):**
+${filteredTree}
+
+Use this to identify which existing pages/components would be impacted by the new feature and which nav/layout components must be updated ([IMPACT] tasks).
 `
     : "";
 

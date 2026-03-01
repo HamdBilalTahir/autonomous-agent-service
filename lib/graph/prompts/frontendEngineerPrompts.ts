@@ -73,6 +73,15 @@ STRICT COMPATIBILITY RULES:
 - Follow the exact Next.js config format in use
 - Use existing component patterns and naming conventions
 ${packageContext}
+━━━ FILE SIZE DISCIPLINE (CRITICAL) ━━━
+This file must not exceed ~200 lines. If implementing the full spec for this file would exceed that:
+- Extract ALL state, API calls, and handlers into a \`hooks/use[Feature].ts\` file (it is already in the plan or should be)
+- Extract visually distinct sections into sub-component files (also already in the plan)
+- This file's job is ONE of: JSX shell, hook logic, or a single section — never all three
+- A component file contains ONLY JSX and calls to its hook. No \`useState\`, no \`fetch\`, no event handler bodies inline.
+- A page file contains ONLY layout structure and passes props down. All logic lives in a hook.
+If you find yourself writing more than ~200 lines, STOP — you are implementing a different file's responsibility.
+
 ━━━ DUPLICATION PREVENTION (CRITICAL) ━━━
 Every heading, button label, section divider, or UI block must appear EXACTLY ONCE in the rendered output:
 - **Page-level headers**: A page title (h1/h2 + subtitle) must be rendered in ONE place only — either in the page wrapper OR the child component, never both.

@@ -15,22 +15,62 @@ Your Constraints:
    - **Enforce Layouts**: Ensure all new pages use the \`globalLayouts\`.
    - **Enforce Navigation**: Ensure entry points are added to \`navigationComponents\`.
 
-FILE DECOMPOSITION RULE (MANDATORY):
-Before finalizing your file list, review each file you plan to create or modify.
-If a component or module will require more than ~150 lines of logic (forms, dashboards,
-multi-step flows, data tables), you MUST decompose it into smaller, focused files:
+FILE DECOMPOSITION RULES (MANDATORY — enforce before finalising any file list):
 
-Pattern: Large Component → Component Shell + Custom Hook + Sub-components
-Example: RegistrationForm.tsx (300 lines) →
-  - components/RegistrationForm.tsx       (~80 lines — JSX shell, no business logic)
-  - hooks/useRegistrationForm.ts          (~100 lines — state, handlers, validation)
-  - components/RegistrationFormFields.tsx (~80 lines — form field sub-components)
+HARD LIMIT: No single file may exceed ~200 lines or ~6,000 characters.
+If any planned file would exceed this, you MUST split it before listing it. No exceptions.
 
-Rules:
-- Custom hooks (use[Feature].ts) handle ALL state and side effects
-- Component files contain ONLY JSX and call hooks
-- Each file should be self-contained and independently testable
-- List ALL decomposed files in newFilesToCreate/filesToModify
+RULE 1 — COMPONENT + LOGIC SEPARATION (apply to every component):
+Any component that renders JSX AND manages state, makes API calls, or handles form logic MUST be split:
+  ComponentName.tsx         JSX only — no business logic, no useState, no fetch (~80-120 lines)
+  hooks/useComponentName.ts ALL state, handlers, API calls, validation, side effects (~80-150 lines)
+
+RULE 2 — MODAL / DRAWER / SHEET DECOMPOSITION:
+Modals and drawers are the most common source of oversized files. Always apply this pattern:
+  FeatureModal.tsx                Dialog/Sheet wrapper + open/close prop wiring only (~50-70 lines)
+  components/FeatureModalContent.tsx   All inner sections, fields, lists (~80-120 lines)
+  hooks/useFeatureModal.ts        State, API calls, submit handlers (~80-120 lines)
+  If the modal has 2+ distinct steps or views → each view is its own sub-component file.
+
+RULE 3 — PAGE DECOMPOSITION:
+Pages are thin orchestrators. They set layout and pass data — nothing more.
+  app/.../page.tsx                Layout wrapper + passes props to content component (~40-60 lines)
+  components/FeaturePageContent.tsx    All visible content and sections (~100-150 lines)
+  hooks/useFeaturePage.ts         Data fetching, filtering, state, side effects
+
+RULE 4 — MULTI-SECTION DECOMPOSITION:
+Any component with 3 or more visually distinct sections (header, form, table, summary, footer)
+MUST be split: each section becomes its own sub-component file (~60-100 lines each).
+
+DECOMPOSITION EXAMPLES (apply these patterns regardless of domain):
+
+  EXAMPLE A — Feature modal with a form (settings, profile, admin, e-commerce, etc.):
+  BAD  → EditItemModal.tsx (9,000 chars — Dialog + form fields + state + API in one file)
+  GOOD →
+    components/feature/EditItemModal.tsx        (~60 lines — Dialog wrapper, open/close only)
+    components/feature/EditItemForm.tsx         (~100 lines — form fields JSX, no handlers)
+    components/feature/ItemDetailSection.tsx    (~80 lines — read-only preview/summary)
+    hooks/useEditItem.ts                        (~120 lines — state, validation, API call)
+
+  EXAMPLE B — Multi-step flow (onboarding, checkout, setup wizard, survey, etc.):
+  BAD  → SetupFlowModal.tsx (8,000 chars — all steps + state + navigation in one file)
+  GOOD →
+    components/feature/SetupFlowModal.tsx       (~60 lines — shell: Dialog wrapper, step router)
+    components/feature/SetupStepOne.tsx         (~90 lines — step 1 content only, no nav buttons)
+    components/feature/SetupStepTwo.tsx         (~70 lines — step 2 content only, no nav buttons)
+    hooks/useSetupFlow.ts                       (~100 lines — currentStep state, API calls, submit)
+
+  EXAMPLE C — Data page with filters and table (dashboard, admin panel, analytics, etc.):
+  BAD  → ItemsPage.tsx (8,000 chars — filters + table + actions + state all in page.tsx)
+  GOOD →
+    app/items/page.tsx                          (~50 lines — layout shell, passes data down)
+    components/feature/ItemsTable.tsx           (~100 lines — table JSX, row rendering)
+    components/feature/ItemsFilterBar.tsx       (~70 lines — search/filter controls)
+    components/feature/ItemsEmptyState.tsx      (~40 lines — empty state illustration + CTA)
+    hooks/useItems.ts                           (~120 lines — fetching, filtering, sorting state)
+
+LIST ALL decomposed files in newFilesToCreate/filesToModify — the engineer generates exactly
+the files you specify. If you don't list a sub-component, it will not be created.
 
 ENGINEER SELECTION:
 Set engineerType based on the nature of the work:
