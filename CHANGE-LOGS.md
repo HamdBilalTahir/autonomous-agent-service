@@ -40,6 +40,29 @@
 
 ---
 
+> ### Repo/Branch Binding for Jira Ticket Creation
+>
+> - **What changed:** Jira tickets created from the UI are now bound to the GitHub repo and branch the user selected. The selected repo owner, repo name, and branch are embedded as machine-readable `AGENT_META` in the first ADF paragraph of the ticket description. The webhook extracts this metadata and uses it for codebase fetching and PR creation, with env var values as fallback. The GitHub repo link is also displayed in the ticket description above the acceptance criteria.
+> - **Why:** Previously all tickets used hardcoded env var values for repo/branch, so the UI selection had no effect on which codebase the agent actually read or targeted. Now the agent reads the correct codebase (using the selected branch as the base) and opens the PR against the selected repo.
+> - **Files:**
+>   - `app/components/RequirementGathering.tsx` — passes `repoOwner`, `repoName`, `branch` to ticket creation API; adds GitHub link in description
+>   - `app/api/create-jira-ticket/route.ts` — embeds `AGENT_META:{owner,repo,branch}` as first ADF paragraph
+>   - `lib/graph/state.ts` — added `targetOwner`, `targetRepo`, `targetBranch` Annotation fields
+>   - `app/api/webhook/route.ts` — extracts `AGENT_META` from ADF, uses values for `getRepoStructure` and seeds graph state
+>   - `lib/graph/nodes/createPrNode.ts` — reads `targetOwner`/`targetRepo`/`targetBranch` from state with env var fallback
+>   - `lib/github.ts` — `processChangesAndCreatePR` accepts `baseBranch` as 9th parameter; PR is opened against the selected base branch
+
+---
+
+> ### Multi-Story Generation for Large Scopes
+>
+> - **What changed:** The chat AI now proactively splits large feature scopes into multiple focused user stories instead of always producing a single story. Updated the `SYSTEM_PROMPT` in `app/api/chat/route.ts` with explicit scope-splitting rules: features with 3+ distinct surfaces, independent sub-features (create/edit/delete), or mixed UI+API work are broken into separate stories (capped at 6). Each story must be independently shippable. The frontend review panel already supported N stories — no UI changes needed.
+> - **Why:** Large features described in a single chat turn were being squeezed into one monolithic story that would be too big for a single agent run. Splitting them upstream produces right-sized tickets that the agent can implement cleanly in one PR each.
+> - **Files:**
+>   - `app/api/chat/route.ts`
+
+---
+
 > ### Pipeline State Tracking Across Graph Nodes
 >
 > - **What changed:** Added a `lib/pipeline-state.ts` module that writes the current pipeline stage for each active ticket to Redis (TTL 2 hours). Every graph node calls `setPipelineState(ticketId, ticketSummary, nodeName)` at the start of execution, mapping node names to human-readable labels (e.g. `"architectureNode"` → `"Analyzing Architecture"`). `updateJiraStatusNode` calls `clearPipelineState` on completion. `lib/cache.ts` gained a `deleteCached` helper to support cache key removal.

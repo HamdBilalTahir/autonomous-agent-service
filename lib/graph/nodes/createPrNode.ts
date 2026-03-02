@@ -20,9 +20,9 @@ export async function createPrNode(state: typeof AgentState.State) {
   console.log(`[Create PR Node][${ticketId}] Initiating PR creation...`);
 
   const github = new GitHubService(process.env.GITHUB_TOKEN || "");
-  const targetOwner = process.env.TARGET_GITHUB_OWNER || "HamdBilalTahir";
-  const targetRepo =
-    process.env.TARGET_GITHUB_REPO || "autonomous-agent-service";
+  const targetOwner = state.targetOwner || process.env.TARGET_GITHUB_OWNER || "";
+  const targetRepo = state.targetRepo || process.env.TARGET_GITHUB_REPO || "";
+  const targetBranch = state.targetBranch || process.env.TARGET_GITHUB_BRANCH || "main";
 
   try {
     const pr = await github.processChangesAndCreatePR(
@@ -34,6 +34,7 @@ export async function createPrNode(state: typeof AgentState.State) {
       executionPlan || { featureScope: "", implementationInstructions: "" },
       ticketClassification?.type || "feature",
       ticketClassification?.branchSlug,
+      targetBranch,
     );
 
     console.log(`✅ [Create PR Node][${ticketId}] PR Created: ${pr.html_url}`);

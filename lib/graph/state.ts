@@ -80,6 +80,31 @@ export const AgentState = Annotation.Root({
   }),
 
   /**
+   * The GitHub owner (user or org) of the target repository.
+   * Extracted from the Jira ticket's AGENT_META block, set from the UI repo selection.
+   */
+  targetOwner: Annotation<string>({
+    reducer: (x, y) => y ?? x,
+  }),
+
+  /**
+   * The name of the target GitHub repository.
+   * Extracted from the Jira ticket's AGENT_META block, set from the UI repo selection.
+   */
+  targetRepo: Annotation<string>({
+    reducer: (x, y) => y ?? x,
+  }),
+
+  /**
+   * The base branch of the target repository (e.g. "main", "develop").
+   * The agent reads the codebase from this branch and opens the PR against it.
+   * Extracted from the Jira ticket's AGENT_META block, set from the UI branch selection.
+   */
+  targetBranch: Annotation<string>({
+    reducer: (x, y) => y ?? x,
+  }),
+
+  /**
    * The feature list extracted by the Product Manager agent.
    */
   featureList: Annotation<FeatureList>({

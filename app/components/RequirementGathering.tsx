@@ -160,7 +160,10 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
 
     for (const story of reviewStories) {
       try {
-        const descriptionText = `${story.description}\n\nAcceptance Criteria:\n${story.acceptanceCriteria.map((ac) => `- ${ac}`).join('\n')}`;
+        const repoOwner = selectedRepo.owner.login;
+        const repoName = selectedRepo.name;
+        const repoUrl = `https://github.com/${repoOwner}/${repoName}`;
+        const descriptionText = `${story.description}\n\nGitHub Repository: ${repoUrl} (branch: ${selectedBranch})\n\nAcceptance Criteria:\n${story.acceptanceCriteria.map((ac) => `- ${ac}`).join('\n')}`;
         const res = await fetch('/api/create-jira-ticket', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -169,6 +172,9 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
             description: descriptionText,
             issueType: 'Story',
             labels: ['ai-agent', 'ai-generated', selectedBranch],
+            repoOwner,
+            repoName,
+            branch: selectedBranch,
           }),
         });
 

@@ -22,9 +22,12 @@ export async function POST(req: NextRequest) {
     );
 
     const github = new GitHubService(process.env.GITHUB_TOKEN || "");
-    const targetOwner = process.env.TARGET_GITHUB_OWNER || "HamdBilalTahir";
-    const targetRepo =
-      process.env.TARGET_GITHUB_REPO || "autonomous-agent-service";
+    // targetOwner/targetRepo/targetBranch are extracted from the ticket's AGENT_META
+    // block (written by the UI when the user approves stories). Fall back to env vars
+    // only for tickets created outside the UI flow.
+    let targetOwner = process.env.TARGET_GITHUB_OWNER || "";
+    let targetRepo = process.env.TARGET_GITHUB_REPO || "";
+    let targetBranch = process.env.TARGET_GITHUB_BRANCH || "main";
 
     // Basic validation
     if (!body.issue || !body.issue.key) {
@@ -48,9 +51,30 @@ export async function POST(req: NextRequest) {
     }
 
     summary = body.issue.fields.summary;
-    const description = body.issue.fields.description || "";
+    const rawDescription = body.issue.fields.description || "";
     const status = body.issue.fields.status.name;
     const labels = body.issue.fields.labels || [];
+
+    // Extract AGENT_META from the first ADF paragraph (written by the UI ticket creator).
+    // Strip the metadata paragraph so the graph only sees the actual story content.
+    let description = rawDescription;
+    if (rawDescription && typeof rawDescription === "object" && Array.isArray((rawDescription as any).content)) {
+      const adf = rawDescription as { content: { content?: { text?: string }[] }[] };
+      const firstText = adf.content[0]?.content?.[0]?.text ?? "";
+      if (firstText.startsWith("AGENT_META:")) {
+        try {
+          const meta = JSON.parse(firstText.slice("AGENT_META:".length));
+          if (meta.owner) targetOwner = meta.owner;
+          if (meta.repo) targetRepo = meta.repo;
+          if (meta.branch) targetBranch = meta.branch;
+          // Remove the metadata paragraph from the description passed to the graph
+          description = { ...adf, content: adf.content.slice(1) } as any;
+        } catch {
+          console.warn(`[Webhook][${ticketId}] Failed to parse AGENT_META`);
+        }
+      }
+    }
+    console.log(`[Webhook] Target repo: ${targetOwner}/${targetRepo} (branch: ${targetBranch})`);
 
     // Filter: Ignore if triggered by the agent itself ONLY IF we have flagged it as an internal update
     const currentUser = await jira.getCurrentUser();
@@ -112,7 +136,7 @@ export async function POST(req: NextRequest) {
     try {
       // Transition to In Progress
       await jira.transitionTicket(ticketId!, "In Progress");
-      const structure = await github.getRepoStructure(targetOwner, targetRepo);
+      const structure = await github.getRepoStructure(targetOwner, targetRepo, targetBranch);
       const codebaseTree = structure.join("\n");
 
       // Invoke Graph
@@ -126,6 +150,9 @@ export async function POST(req: NextRequest) {
               ? description
               : JSON.stringify(description),
           codebaseTree,
+          targetOwner,
+          targetRepo,
+          targetBranch,
         },
         { recursionLimit: 100 },
       );

@@ -15,22 +15,34 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { summary, description, projectKey, issueType, labels } = body;
+    const { summary, description, projectKey, issueType, labels, repoOwner, repoName, branch } = body;
+
+    // Build ADF content: metadata paragraph (machine-readable) + description paragraph
+    const adfContent: object[] = [];
+
+    // First paragraph: machine-readable metadata consumed by the agent webhook
+    if (repoOwner && repoName && branch) {
+      adfContent.push({
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            text: `AGENT_META:${JSON.stringify({ owner: repoOwner, repo: repoName, branch })}`,
+          },
+        ],
+      });
+    }
+
+    // Second paragraph: the story description (already includes GitHub link + AC)
+    adfContent.push({
+      type: "paragraph",
+      content: [{ type: "text", text: description }],
+    });
 
     const descriptionADF = {
       type: "doc",
       version: 1,
-      content: [
-        {
-          type: "paragraph",
-          content: [
-            {
-              type: "text",
-              text: description,
-            },
-          ],
-        },
-      ],
+      content: adfContent,
     };
 
     const payload = {
