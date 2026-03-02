@@ -13,10 +13,10 @@ export async function GET(req: NextRequest) {
     JIRA_EMAIL: process.env.JIRA_EMAIL ? "configured" : "missing",
     TARGET_GITHUB_OWNER: process.env.TARGET_GITHUB_OWNER
       ? "configured"
-      : "missing (using default)",
+      : "missing",
     TARGET_GITHUB_REPO: process.env.TARGET_GITHUB_REPO
       ? "configured"
-      : "missing (using default)",
+      : "missing",
     GEMINI_API_KEY: process.env.GEMINI_API_KEY ? "configured" : "missing",
     HF_API_KEY: process.env.HF_API_KEY ? "configured" : "missing (optional)",
   };

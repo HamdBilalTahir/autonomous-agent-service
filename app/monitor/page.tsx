@@ -65,14 +65,48 @@ export default function MonitorPage() {
 
   const fetchTickets = useCallback(async () => {
     try {
+      // 1. Load local tickets first (backup/offline mode)
+      const localRaw = localStorage.getItem('generated_tickets');
+      const localTickets: { key: string; summary: string }[] = localRaw ? JSON.parse(localRaw) : [];
+
+      // 2. Try to fetch fresh data from API
       const res = await fetch('/api/tickets');
       if (!res.ok) throw new Error('Failed to fetch tickets');
+      
       const data = await res.json();
-      setTickets(data.tickets ?? []);
+      const apiTickets: Ticket[] = data.tickets ?? [];
+
+      // 3. Merge: Use API tickets, but ensure any locally created ones are included if missing from API (unlikely but safe)
+      // Actually, for now, let's just use API tickets as the source of truth for status/pipeline,
+      // but if API fails, we can show local tickets with "Unknown" status.
+      
+      setTickets(apiTickets);
       setLastRefresh(new Date());
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Unknown error');
+      console.error("Fetch failed, falling back to local storage", e);
+      
+      // Fallback: Construct minimal ticket objects from localStorage
+      const localRaw = localStorage.getItem('generated_tickets');
+      if (localRaw) {
+        const localTickets: { key: string; summary: string }[] = JSON.parse(localRaw);
+        const fallbackTickets: Ticket[] = localTickets.map(t => ({
+          key: t.key,
+          summary: t.summary,
+          status: 'Unknown',
+          created: new Date().toISOString(), // Mock
+          updated: new Date().toISOString(), // Mock
+          priority: null,
+          labels: [],
+          prUrl: null,
+          pipeline: null
+        }));
+        // Sort by key (assuming newer keys are higher/lexicographically larger or just prepend)
+        setTickets(fallbackTickets.reverse());
+        setError(null); // Clear error since we have partial data
+      } else {
+         setError(e instanceof Error ? e.message : 'Unknown error');
+      }
     } finally {
       setIsLoading(false);
     }

@@ -58,7 +58,9 @@ export async function emNode(state: typeof AgentState.State) {
     );
 
     // Bucket 2 — custom hooks (always good reuse candidates)
-    const hooks = lines.filter((l) => l.includes("hooks/") || l.includes("/hooks/"));
+    const hooks = lines.filter(
+      (l) => l.includes("hooks/") || l.includes("/hooks/"),
+    );
 
     // Bucket 3 — other feature components (not shared/ui, not pages)
     const featureComponents = lines.filter(
@@ -70,13 +72,21 @@ export async function emNode(state: typeof AgentState.State) {
 
     // Bucket 4 — app pages (routing awareness only; capped at 20 to save tokens)
     const pages = lines
-      .filter((l) => (l.includes("/app/") || l.includes("app/")) && l.includes("page."))
+      .filter(
+        (l) =>
+          (l.includes("/app/") || l.includes("app/")) && l.includes("page."),
+      )
       .slice(0, 20);
 
     // Merge priority buckets, deduplicate, hard cap at 80 total
     const seen = new Set<string>();
     const result: string[] = [];
-    for (const line of [...sharedUi, ...hooks, ...featureComponents, ...pages]) {
+    for (const line of [
+      ...sharedUi,
+      ...hooks,
+      ...featureComponents,
+      ...pages,
+    ]) {
       if (!seen.has(line) && result.length < 80) {
         seen.add(line);
         result.push(line);
@@ -102,17 +112,55 @@ export async function emNode(state: typeof AgentState.State) {
     `[EM Node][${state.ticketId}] Sending prompt to LLM — system: ${systemPrompt.length} chars, user: ${userPrompt.length} chars`,
   );
 
-  // Generate the execution plan
-  const { raw, parsed: result } = await structuredModel.invoke([
-    ["system", systemPrompt],
-    ["user", userPrompt],
-  ]);
+  // Generate the execution plan with retries
+  let raw: any;
+  let result: any;
+  let attempt = 0;
+  const maxRetries = 3;
+
+  while (attempt < maxRetries) {
+    attempt++;
+    try {
+      const response = await structuredModel.invoke([
+        ["system", systemPrompt],
+        ["user", userPrompt],
+      ]);
+      raw = response.raw;
+      result = response.parsed;
+
+      if (result) break; // Success
+
+      console.warn(
+        `[EM Node][${state.ticketId}] Attempt ${attempt}/${maxRetries} returned null structured output. Retrying...`,
+      );
+    } catch (e: any) {
+      console.warn(
+        `[EM Node][${state.ticketId}] Attempt ${attempt}/${maxRetries} failed with error: ${e.message}. Retrying...`,
+      );
+    }
+    // Simple backoff
+    if (attempt < maxRetries) {
+      await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+    }
+  }
 
   const tokenUsage = extractTokenUsage(raw);
 
   if (!result) {
+    console.error(
+      `[EM Node][${state.ticketId}] FATAL: Structured output returned null after ${maxRetries} attempts.`,
+    );
+    console.error(
+      `[EM Node][${state.ticketId}] Raw response content:`,
+      JSON.stringify(raw, null, 2),
+    );
+
+    // Graceful fallback: Instead of crashing, return a "failed" state or minimal plan
+    // so the graph can route to a failure node or exit cleanly if designed to do so.
+    // For now, we MUST throw because downstream nodes expect a valid executionPlan.
+    // But we provide better debug info before throwing.
     throw new Error(
-      `[EM Node][${state.ticketId}] Structured output returned null — model failed to conform to ExecutionPlan schema. Raw response type: ${raw?.constructor?.name ?? "unknown"}.`,
+      `[EM Node][${state.ticketId}] Failed to generate Execution Plan. Model output did not match schema. See logs for raw response.`,
     );
   }
 
@@ -130,8 +178,8 @@ export async function emNode(state: typeof AgentState.State) {
 
   // Generate the execution plan summary for state persistence
   const planSummary = (result.newFilesToCreate || [])
-    .map((f) => `- NEW FILE: ${f}`)
-    .concat((result.filesToModify || []).map((f) => `- MODIFY: ${f}`))
+    .map((f: string) => `- NEW FILE: ${f}`)
+    .concat((result.filesToModify || []).map((f: string) => `- MODIFY: ${f}`))
     .join("\n");
 
   const implementationSummary = `STRATEGY: ${result.implementationInstructions}`;

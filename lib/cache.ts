@@ -2,12 +2,12 @@ import Redis from "ioredis";
 
 // Fail-fast options prevent ioredis from queuing/retrying indefinitely
 // when Redis is unreachable, which would hang the entire pipeline silently.
-const redis = process.env.REDIS_URL
+export const redis = process.env.REDIS_URL
   ? new Redis(process.env.REDIS_URL, {
-      maxRetriesPerRequest: 0,   // reject commands immediately instead of retrying
+      maxRetriesPerRequest: 0, // reject commands immediately instead of retrying
       enableOfflineQueue: false, // don't queue commands when not yet connected
-      connectTimeout: 3000,      // give up TCP handshake after 3s
-      lazyConnect: true,         // don't connect at import time — wait for first use
+      connectTimeout: 3000, // give up TCP handshake after 3s
+      lazyConnect: true, // don't connect at import time — wait for first use
     })
   : null;
 

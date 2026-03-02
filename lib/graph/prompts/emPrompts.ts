@@ -155,8 +155,22 @@ Based on these critical errors, create a Surgical Technical Contract to fix them
 Business Requirements (The "What"):
 ${featureList.map((f) => `- ${f}`).join("\n")}
 
-Architecture Profile:
+  Architecture Profile:
 ${profileSummary}
+
+${
+  architectureProfile.scaffoldInstructions
+    ? `
+🚨 CRITICAL: PROJECT SCAFFOLDING REQUIRED 🚨
+The repository is empty or missing a stack. You MUST include the following scaffolding steps as the FIRST items in your Execution Plan. These files MUST be created before any feature work.
+
+SCAFFOLD INSTRUCTIONS:
+${architectureProfile.scaffoldInstructions.map((i) => `- ${i}`).join("\n")}
+
+You must add these files to 'newFilesToCreate' and provide implementation details for them.
+`
+    : ""
+}
 
 Existing Components (Reuse where possible):
 ${existingComponents}

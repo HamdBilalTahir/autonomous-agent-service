@@ -40,9 +40,16 @@ export async function POST(req: NextRequest) {
     );
 
     const github = new GitHubService(process.env.GITHUB_TOKEN || "");
-    const targetOwner = process.env.TARGET_GITHUB_OWNER || "HamdBilalTahir";
-    const targetRepo =
-      process.env.TARGET_GITHUB_REPO || "autonomous-agent-service";
+    const targetOwner = body.targetOwner;
+    const targetRepo = body.targetRepo;
+    const targetBranch = body.targetBranch || "main";
+
+    if (!targetOwner || !targetRepo) {
+      return NextResponse.json(
+        { error: "Target repository owner and name are required" },
+        { status: 400 },
+      );
+    }
 
     // Fetch Ticket Details
     const ticket = await jira.getTicket(ticketId);
@@ -55,7 +62,11 @@ export async function POST(req: NextRequest) {
     await jira.transitionTicket(ticketId, "In Progress");
 
     // Fetch Codebase Tree
-    const structure = await github.getRepoStructure(targetOwner, targetRepo);
+    const structure = await github.getRepoStructure(
+      targetOwner,
+      targetRepo,
+      targetBranch,
+    );
     const codebaseTree = structure.join("\n");
 
     // Invoke Graph
@@ -69,6 +80,9 @@ export async function POST(req: NextRequest) {
             ? description
             : JSON.stringify(description),
         codebaseTree,
+        targetOwner,
+        targetRepo,
+        targetBranch,
       },
       { recursionLimit: 100 },
     );
@@ -80,7 +94,8 @@ export async function POST(req: NextRequest) {
 
     // --- Performance Logging ---
     logPerformanceReport(metrics, ticketId!, summary, {
-      generatedFiles: metrics?.totalFilesGenerated || generatedCode?.length || 0,
+      generatedFiles:
+        metrics?.totalFilesGenerated || generatedCode?.length || 0,
       modifiedFiles: metrics?.totalFilesModified || 0,
     });
     // ---------------------------

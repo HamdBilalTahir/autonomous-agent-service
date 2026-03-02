@@ -56,4 +56,41 @@ export async function getPipelineState(
 
 export async function clearPipelineState(ticketId: string): Promise<void> {
   await deleteCached(KEY(ticketId));
+  await deleteCached(PROGRESS_KEY(ticketId));
+}
+
+// ─── Validation Progress ────────────────────────────────────────────────────
+
+const PROGRESS_KEY = (ticketId: string) => `pipeline_progress:${ticketId}`;
+
+export interface ValidationProgress {
+  passed: number;
+  total: number;
+  round: number;
+  updatedAt: number;
+}
+
+export async function setValidationProgress(
+  ticketId: string,
+  passed: number,
+  total: number,
+  round: number,
+): Promise<void> {
+  try {
+    const progress: ValidationProgress = { passed, total, round, updatedAt: Date.now() };
+    await setCached(PROGRESS_KEY(ticketId), JSON.stringify(progress), TTL);
+  } catch {
+    // non-blocking
+  }
+}
+
+export async function getValidationProgress(
+  ticketId: string,
+): Promise<ValidationProgress | null> {
+  try {
+    const raw = await getCached(PROGRESS_KEY(ticketId));
+    return raw ? (JSON.parse(raw) as ValidationProgress) : null;
+  } catch {
+    return null;
+  }
 }

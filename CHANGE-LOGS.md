@@ -6,6 +6,56 @@
 
 ---
 
+> ### Auto-Scaffold Next.js Stack for Empty Repositories
+>
+> - **What changed:** Implemented automatic detection of empty repositories (or those missing a stack) in the Architecture Node, which now returns a default "Fresh Next.js TypeScript Project" profile with detailed `scaffoldInstructions`. The Engineering Manager (EM) Node consumes these instructions to prioritize project scaffolding (package.json, tsconfig, app structure) before implementing requested features.
+> - **Why:** The agent previously failed or hallucinated on empty repositories because it tried to analyze a non-existent architecture. Now it autonomously bootstraps a standard Next.js + Tailwind stack on a new branch when starting from scratch.
+> - **Files:**
+>   - `lib/graph/schema.ts`
+>   - `lib/graph/nodes/architectureNode.ts`
+>   - `lib/graph/prompts/emPrompts.ts`
+
+---
+
+> ### Agent Startup Logger
+>
+> - **What changed:** Added explicit logging of the target repository (owner/repo) and base branch at the very start of the graph execution in the webhook handler.
+> - **Why:** To provide immediate visibility into which codebase context the agent is operating on for each ticket, confirming the dynamic repo selection is working as expected.
+> - **Files:**
+>   - `app/api/webhook/route.ts`
+
+---
+
+> ### Dynamic Repository Context & Environment Independence
+>
+> - **What changed:** Updated the entire agent pipeline to support dynamic GitHub repository selection (owner/repo/branch) passed via state, removing all hardcoded reliance on `TARGET_GITHUB_OWNER` and `TARGET_GITHUB_REPO` environment variables.
+>   1. **Architecture Node** (`lib/graph/nodes/architectureNode.ts`): Now instantiates `GitHubService` with the correct target repo from state, fetches the `codebaseTree` dynamically (replacing the static env-based fetch in the API route), and passes repo details to `analyzeProjectContext` and `getInstalledPackages` for accurate project analysis.
+>   2. **Design Node** (`lib/graph/nodes/designNode.ts`): Added strict validation to ensure target repo details are present in state before execution, preventing operation on the wrong codebase.
+>   3. **Process Ticket API** (`app/api/process-ticket/route.ts`): Updated to extract `targetOwner`, `targetRepo`, and `targetBranch` from the request body and pass them to the graph state. Removed fallback to environment variables.
+>   4. **Webhook API** (`app/api/webhook/route.ts`): Removed environment variable fallbacks; now strictly relies on `AGENT_META` extracted from the Jira ticket.
+>   5. **Branches API** (`app/api/branches/route.ts`): Updated to require `owner` and `repo` query parameters instead of defaulting to env vars.
+>   6. **Project Context** (`lib/project-context.ts`): Updated context analyzers to fetch `package.json` and config files via GitHub API when repo details are provided, enabling analysis of remote repositories.
+> - **Why:** The agent was previously tethered to a single "target repo" defined in `.env`, causing it to read/write to the wrong codebase if the user selected a different repo in the UI. Now the agent is fully multi-tenant capable, respecting the specific repo/branch selected for each ticket.
+> - **Files:**
+>   - `lib/graph/nodes/architectureNode.ts`
+>   - `lib/graph/nodes/designNode.ts`
+>   - `app/api/process-ticket/route.ts`
+>   - `app/api/webhook/route.ts`
+>   - `app/api/branches/route.ts`
+>   - `lib/project-context.ts`
+>   - `app/api/test/route.ts`
+
+---
+
+> ### Validation Progress Logger
+>
+> - **What changed:** Added a 5-minute interval logger to the webhook handler that fetches and logs the validation completion percentage (files validated / total files) and current round count for the running ticket.
+> - **Why:** Long-running tickets provided no visibility into their validation progress, making it difficult to tell if the agent was stuck or just churning through a large batch of files.
+> - **Files:**
+>   - `app/api/webhook/route.ts`
+
+---
+
 > ### Story Creator UI — GitHub Repo/Branch Selection + AI Chat for User Stories
 >
 > - **What changed:** Built the full front-end experience for creating Jira user stories through an AI-assisted chat flow:
@@ -87,6 +137,28 @@
 > - **Files:**
 >   - `app/monitor/page.tsx` *(new)*
 >   - `app/api/tickets/route.ts` *(new)*
+
+---
+
+### 🐛 Fixes
+
+---
+
+> ### Jira Rollback Status Correction
+>
+> - **What changed:** Updated the error handling rollback in `webhook/route.ts` to transition failed tickets to **"To Do"** instead of "Selected for Development".
+> - **Why:** "Selected for Development" was not a valid transition in the target Jira project's workflow, causing the rollback itself to fail and leaving tickets in a broken state. "To Do" is the correct initial state.
+> - **Files:**
+>   - `app/api/webhook/route.ts`
+
+---
+
+> ### EM Node Retry Logic & Error Handling
+>
+> - **What changed:** Implemented a retry mechanism (3 attempts with backoff) for the EM Node's structured output generation. Added detailed `FATAL` logging of the raw response content if the model fails to conform to the schema after retries.
+> - **Why:** The EM Node occasionally failed with a null result when the model produced malformed JSON, crashing the entire workflow. Retries and better logging ensure transient failures are recovered and persistent issues are easier to debug.
+> - **Files:**
+>   - `lib/graph/nodes/emNode.ts`
 
 ---
 

@@ -110,6 +110,12 @@ export const ArchitectureProfileSchema = z.object({
   apiPatterns: z
     .array(z.string())
     .describe("API route patterns (e.g., app/api, routers/)."),
+  scaffoldInstructions: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "If the project is empty or missing a stack, this field contains a list of high-level instructions to scaffold the project (e.g., 'Initialize Next.js app', 'Setup Tailwind').",
+    ),
   systemIntegrity: z
     .object({
       globalLayouts: z
@@ -250,8 +256,8 @@ export type ValidationResult = z.infer<typeof ValidationSchema>;
 
 export const SurgicalContextSchema = z.object({
   failingFilePaths: z.array(z.string()),
-  errorLogs: z.array(z.string()),       // real TypeScript/runtime errors
-  systemErrors: z.array(z.string()),    // timeout/crash strings — informational only
+  errorLogs: z.array(z.string()), // real TypeScript/runtime errors
+  systemErrors: z.array(z.string()), // timeout/crash strings — informational only
 });
 
 export type SurgicalContext = z.infer<typeof SurgicalContextSchema>;

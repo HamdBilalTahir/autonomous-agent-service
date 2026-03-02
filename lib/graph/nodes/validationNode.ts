@@ -3,7 +3,7 @@ import { AgentState, GeneratedFile } from "../state";
 import { ValidationSchema } from "../schema";
 import { getValidationSystemPrompt } from "../prompts/validationPrompts";
 import { extractTokenUsage } from "../metrics-utils";
-import { setPipelineState } from "../../pipeline-state";
+import { setPipelineState, setValidationProgress } from "../../pipeline-state";
 import { withConcurrency } from "../concurrency";
 import { checkCrossFileImports, checkPackageImports } from "../ts-cross-file-check";
 
@@ -488,6 +488,11 @@ export async function validationNode(state: typeof AgentState.State) {
     console.log(
       `⏱️ [Validation Node][${state.ticketId}] Completed in ${duration}ms`,
     );
+
+    // Store progress for the 5-min periodic logger in the webhook
+    const totalFiles = generatedCode?.length ?? 0;
+    const passedFiles = totalFiles - filesNeedingRevision.length;
+    await setValidationProgress(state.ticketId, passedFiles, totalFiles, currentRound);
 
     return {
       needsRevision,

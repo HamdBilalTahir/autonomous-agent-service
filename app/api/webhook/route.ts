@@ -4,6 +4,7 @@ import { JiraService } from "../../../lib/jira";
 import { GitHubService } from "../../../lib/github";
 import { getCached, setCached } from "../../../lib/cache";
 import { logPerformanceReport } from "../../../lib/graph/metrics-utils";
+import { getValidationProgress } from "../../../lib/pipeline-state";
 
 export const maxDuration = 300;
 
@@ -23,11 +24,10 @@ export async function POST(req: NextRequest) {
 
     const github = new GitHubService(process.env.GITHUB_TOKEN || "");
     // targetOwner/targetRepo/targetBranch are extracted from the ticket's AGENT_META
-    // block (written by the UI when the user approves stories). Fall back to env vars
-    // only for tickets created outside the UI flow.
-    let targetOwner = process.env.TARGET_GITHUB_OWNER || "";
-    let targetRepo = process.env.TARGET_GITHUB_REPO || "";
-    let targetBranch = process.env.TARGET_GITHUB_BRANCH || "main";
+    // block (written by the UI when the user approves stories).
+    let targetOwner = "";
+    let targetRepo = "";
+    let targetBranch = "main";
 
     // Basic validation
     if (!body.issue || !body.issue.key) {
@@ -55,26 +55,50 @@ export async function POST(req: NextRequest) {
     const status = body.issue.fields.status.name;
     const labels = body.issue.fields.labels || [];
 
-    // Extract AGENT_META from the first ADF paragraph (written by the UI ticket creator).
+    // Extract repo/branch from the first ADF paragraph written by the UI ticket creator.
+    // Supports two formats (new format takes precedence):
+    //   New: "🤖 Agent Target: https://github.com/{owner}/{repo}/tree/{branch}"
+    //   Old: "AGENT_META:{\"owner\":\"...\",\"repo\":\"...\",\"branch\":\"...\"}"
     // Strip the metadata paragraph so the graph only sees the actual story content.
     let description = rawDescription;
-    if (rawDescription && typeof rawDescription === "object" && Array.isArray((rawDescription as any).content)) {
-      const adf = rawDescription as { content: { content?: { text?: string }[] }[] };
-      const firstText = adf.content[0]?.content?.[0]?.text ?? "";
-      if (firstText.startsWith("AGENT_META:")) {
+    if (
+      rawDescription &&
+      typeof rawDescription === "object" &&
+      Array.isArray((rawDescription as any).content)
+    ) {
+      const adf = rawDescription as {
+        content: { content?: { text?: string }[] }[];
+      };
+      // Collect all text nodes in the first paragraph
+      const firstParaTexts = (adf.content[0]?.content ?? [])
+        .map((node: { text?: string }) => node.text ?? "")
+        .join("");
+
+      // New format: GitHub URL with /tree/{branch}
+      const githubMatch = firstParaTexts.match(
+        /github\.com\/([^\/\s]+)\/([^\/\s]+)\/tree\/([^\s]+)/,
+      );
+      if (githubMatch) {
+        targetOwner = githubMatch[1];
+        targetRepo = githubMatch[2];
+        targetBranch = githubMatch[3];
+        description = { ...adf, content: adf.content.slice(1) } as any;
+      } else if (firstParaTexts.startsWith("AGENT_META:")) {
+        // Legacy format
         try {
-          const meta = JSON.parse(firstText.slice("AGENT_META:".length));
+          const meta = JSON.parse(firstParaTexts.slice("AGENT_META:".length));
           if (meta.owner) targetOwner = meta.owner;
           if (meta.repo) targetRepo = meta.repo;
           if (meta.branch) targetBranch = meta.branch;
-          // Remove the metadata paragraph from the description passed to the graph
           description = { ...adf, content: adf.content.slice(1) } as any;
         } catch {
           console.warn(`[Webhook][${ticketId}] Failed to parse AGENT_META`);
         }
       }
     }
-    console.log(`[Webhook] Target repo: ${targetOwner}/${targetRepo} (branch: ${targetBranch})`);
+    console.log(
+      `[Webhook] Target repo: ${targetOwner}/${targetRepo} (branch: ${targetBranch})`,
+    );
 
     // Filter: Ignore if triggered by the agent itself ONLY IF we have flagged it as an internal update
     const currentUser = await jira.getCurrentUser();
@@ -136,26 +160,58 @@ export async function POST(req: NextRequest) {
     try {
       // Transition to In Progress
       await jira.transitionTicket(ticketId!, "In Progress");
-      const structure = await github.getRepoStructure(targetOwner, targetRepo, targetBranch);
+      const structure = await github.getRepoStructure(
+        targetOwner,
+        targetRepo,
+        targetBranch,
+      );
       const codebaseTree = structure.join("\n");
 
       // Invoke Graph
       console.log("[Webhook] Invoking LangGraph...");
-      const finalState = await graph.invoke(
-        {
-          ticketId,
-          ticketSummary: summary,
-          ticketDescription:
-            typeof description === "string"
-              ? description
-              : JSON.stringify(description),
-          codebaseTree,
-          targetOwner,
-          targetRepo,
-          targetBranch,
+      console.log(`🚀 STARTING AGENT WORKFLOW FOR ${ticketId}`);
+      console.log(`   📂 REPO:   ${targetOwner}/${targetRepo}`);
+      console.log(`   🌿 BRANCH: ${targetBranch}`);
+
+      // Start periodic progress logger
+      const progressInterval = setInterval(
+        async () => {
+          if (ticketId) {
+            const p = await getValidationProgress(ticketId);
+            if (p && p.total > 0) {
+              const percentage = Math.round((p.passed / p.total) * 100);
+              console.log(
+                `[Webhook] Ticket ${ticketId}: ${percentage}% complete (${p.passed}/${p.total} files validated) - Round ${p.round}`,
+              );
+            }
+          }
         },
-        { recursionLimit: 100 },
-      );
+        5 * 60 * 1000,
+      ); // 5 minutes
+
+      let finalState;
+      try {
+        finalState = await graph.invoke(
+          {
+            ticketId,
+            ticketSummary: summary,
+            ticketDescription:
+              typeof description === "string"
+                ? description
+                : JSON.stringify(description),
+            codebaseTree,
+            targetOwner,
+            targetRepo,
+            targetBranch,
+          },
+          {
+            recursionLimit: 100,
+            configurable: { thread_id: ticketId },
+          },
+        );
+      } finally {
+        clearInterval(progressInterval);
+      }
       console.timeEnd("GraphExecution");
 
       const { metrics } = finalState;
@@ -191,7 +247,7 @@ export async function POST(req: NextRequest) {
           ticketId,
           `❌ **Agent Workflow Failed**\n\nError: ${error.message}\n\nPlease check server logs and reset status manually if needed.`,
         );
-        await jira.transitionTicket(ticketId, "Selected for Development");
+        await jira.transitionTicket(ticketId, "To Do");
         // Clear the agent_update flag so the ticket can be re-processed after a manual reset
         await setCached(`agent_update:${ticketId}`, "false", 1);
       } catch (rollbackError) {

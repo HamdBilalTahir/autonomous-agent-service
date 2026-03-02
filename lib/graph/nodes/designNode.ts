@@ -8,6 +8,8 @@ import {
 import { DesignSpecificationsSchema } from "../schema";
 import { extractTokenUsage } from "../metrics-utils";
 import { setPipelineState } from "../../pipeline-state";
+import { getCached } from "../../cache";
+import { GitHubService } from "../../github";
 
 /**
  * The Design Agent node.
@@ -34,6 +36,21 @@ export async function designNode(state: typeof AgentState.State) {
     `\n🎨 [Design Node][${state.ticketId}] Starting design analysis (${mode} MODE) for ticket:`,
     state.ticketSummary,
   );
+
+  // Retrieve user's GitHub OAuth token if available, otherwise fallback to env var
+  const userToken = await getCached(`github_token:${state.ticketId}`);
+  const token = userToken || process.env.GITHUB_TOKEN || "";
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const github = new GitHubService(token);
+
+  const targetOwner = state.targetOwner;
+  const targetRepo = state.targetRepo;
+
+  if (!targetOwner || !targetRepo) {
+    throw new Error(
+      `[Design Node] Missing target repository info. State: owner=${targetOwner}, repo=${targetRepo}`,
+    );
+  }
 
   // Initialize the Gemini model
   const model = new ChatGoogleGenerativeAI({
@@ -76,9 +93,17 @@ ${executionPlan.implementationInstructions}
   // which reads the agent's own filesystem, not the target project.
   const detectedLibs = (installedPackages ?? []).filter((p) =>
     [
-      "tailwindcss", "framer-motion", "react-spring",
-      "@radix-ui", "shadcn", "@shadcn", "@mui", "antd",
-      "lucide-react", "@heroicons", "react-icons",
+      "tailwindcss",
+      "framer-motion",
+      "react-spring",
+      "@radix-ui",
+      "shadcn",
+      "@shadcn",
+      "@mui",
+      "antd",
+      "lucide-react",
+      "@heroicons",
+      "react-icons",
     ].some((lib) => p.startsWith(lib)),
   );
 
@@ -127,15 +152,29 @@ ${executionPlan.implementationInstructions}
 
   const tokenUsage = extractTokenUsage(raw);
 
-  console.log(`✅ [Design Node][${state.ticketId}] Design Specifications Generated:`);
-  console.log(`   Colors — Primary: ${result.colorSystem.primary} | Secondary: ${result.colorSystem.secondary} | Accent: ${result.colorSystem.accent}`);
-  console.log(`   Semantic — Success: ${result.colorSystem.semantic?.success} | Error: ${result.colorSystem.semantic?.error} | Warning: ${result.colorSystem.semantic?.warning}`);
-  console.log(`   Typography — ${result.typography.headings.length} heading levels | Body: ${result.typography.body?.fontSize} / lh ${result.typography.body?.lineHeight}`);
-  console.log(`   Spacing — Grid: ${result.spacing?.grid} | Scale: ${result.spacing?.scale?.slice(0, 4).join(", ")}…`);
-  console.log(`   Animations — Fast: ${result.animations?.durations?.fast} | Normal: ${result.animations?.durations?.normal}`);
+  console.log(
+    `✅ [Design Node][${state.ticketId}] Design Specifications Generated:`,
+  );
+  console.log(
+    `   Colors — Primary: ${result.colorSystem.primary} | Secondary: ${result.colorSystem.secondary} | Accent: ${result.colorSystem.accent}`,
+  );
+  console.log(
+    `   Semantic — Success: ${result.colorSystem.semantic?.success} | Error: ${result.colorSystem.semantic?.error} | Warning: ${result.colorSystem.semantic?.warning}`,
+  );
+  console.log(
+    `   Typography — ${result.typography.headings.length} heading levels | Body: ${result.typography.body?.fontSize} / lh ${result.typography.body?.lineHeight}`,
+  );
+  console.log(
+    `   Spacing — Grid: ${result.spacing?.grid} | Scale: ${result.spacing?.scale?.slice(0, 4).join(", ")}…`,
+  );
+  console.log(
+    `   Animations — Fast: ${result.animations?.durations?.fast} | Normal: ${result.animations?.durations?.normal}`,
+  );
   console.log(`   Components (${result.components.length}):`);
   result.components.forEach((c) =>
-    console.log(`     • ${c.name} — variants: [${c.variants?.join(", ")}] | states: [${c.states?.join(", ")}]`),
+    console.log(
+      `     • ${c.name} — variants: [${c.variants?.join(", ")}] | states: [${c.states?.join(", ")}]`,
+    ),
   );
 
   const duration = Date.now() - startTime;

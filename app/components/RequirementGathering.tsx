@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
 import { Send, User, Loader2, Sparkles, Pencil, Trash2, Plus, CheckCircle2, ExternalLink, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -36,6 +37,7 @@ interface RequirementGatheringProps {
 }
 
 export default function RequirementGathering({ selectedBranch, selectedRepo }: RequirementGatheringProps) {
+  const { data: session } = useSession();
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
@@ -82,6 +84,9 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
     setInput('');
     setIsLoading(true);
 
+    // Add empty assistant placeholder — will be filled by the stream
+    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -93,23 +98,70 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
         }),
       });
 
-      const data = await response.json();
+      if (!response.body) throw new Error('No response body');
 
-      if (data.message) {
-        setMessages((prev) => [...prev, { role: 'assistant', content: data.message }]);
-      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let fullText = '';
 
-      if (data.stories && data.stories.length > 0) {
-        const editable: EditableStory[] = data.stories.map((s: UserStory, i: number) => ({
-          ...s,
-          id: `story-${Date.now()}-${i}`,
-        }));
-        setReviewStories(editable);
-        setExpandedStory(editable[0]?.id ?? null);
-        setIsReviewing(true);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6);
+          if (data === '[DONE]') continue;
+
+          try {
+            const event = JSON.parse(data);
+
+            if (event.type === 'text') {
+              fullText += event.content;
+              // Strip JSON block from the live display
+              const displayText = fullText.replace(/```json[\s\S]*?```/g, '').trim();
+              setMessages((prev) => {
+                const next = [...prev];
+                next[next.length - 1] = { role: 'assistant', content: displayText || fullText };
+                return next;
+              });
+            } else if (event.type === 'stories' && event.stories?.length > 0) {
+              const editable: EditableStory[] = event.stories.map((s: UserStory, i: number) => ({
+                ...s,
+                id: `story-${Date.now()}-${i}`,
+              }));
+              setReviewStories(editable);
+              setExpandedStory(editable[0]?.id ?? null);
+              setIsReviewing(true);
+              // Finalise the assistant message without the JSON block
+              const cleanMsg = fullText.replace(/```json[\s\S]*?```/g, '').trim();
+              setMessages((prev) => {
+                const next = [...prev];
+                next[next.length - 1] = {
+                  role: 'assistant',
+                  content: cleanMsg || "I've generated the user stories based on our conversation. You can review them below.",
+                };
+                return next;
+              });
+            } else if (event.type === 'error') {
+              throw new Error('Stream error');
+            }
+          } catch {
+            // skip malformed SSE line
+          }
+        }
       }
     } catch {
-      setMessages((prev) => [...prev, { role: 'assistant', content: "I'm sorry, I encountered an error. Please try again." }]);
+      setMessages((prev) => {
+        const next = [...prev];
+        next[next.length - 1] = { role: 'assistant', content: "I'm sorry, I encountered an error. Please try again." };
+        return next;
+      });
     } finally {
       setIsLoading(false);
     }
@@ -175,6 +227,7 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
             repoOwner,
             repoName,
             branch: selectedBranch,
+            githubToken: (session as any)?.accessToken,
           }),
         });
 
@@ -188,6 +241,12 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
         // skip failed ticket; continue with rest
       }
     }
+
+    // Save to localStorage
+    const savedTickets = localStorage.getItem('generated_tickets');
+    const existingTickets = savedTickets ? JSON.parse(savedTickets) : [];
+    const updatedTickets = [...existingTickets, ...created];
+    localStorage.setItem('generated_tickets', JSON.stringify(updatedTickets));
 
     setCreatedTickets(created);
     setIsReviewing(false);
@@ -405,7 +464,7 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
           </div>
         ))}
 
-        {isLoading && (
+        {isLoading && messages[messages.length - 1]?.content === '' && (
           <div className="flex justify-start w-full animate-in fade-in duration-300">
             <div className="bg-white border border-[#E7DBEF] rounded-2xl rounded-bl-sm px-4 py-3.5 shadow-sm flex items-center gap-3">
               <Loader2 className="w-4 h-4 animate-spin text-[#6E3482]" />

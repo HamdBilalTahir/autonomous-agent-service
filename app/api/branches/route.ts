@@ -1,15 +1,23 @@
 import { NextResponse } from "next/server";
 import { GitHubService } from "@/lib/github";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
   const token = process.env.GITHUB_TOKEN;
-  const owner = process.env.TARGET_GITHUB_OWNER;
-  const repo = process.env.TARGET_GITHUB_REPO;
+  const owner = searchParams.get("owner");
+  const repo = searchParams.get("repo");
 
-  if (!token || !owner || !repo) {
+  if (!token) {
     return NextResponse.json(
-      { error: "Missing GitHub configuration" },
+      { error: "Missing GitHub token configuration" },
       { status: 500 },
+    );
+  }
+
+  if (!owner || !repo) {
+    return NextResponse.json(
+      { error: "Missing owner or repo query parameters" },
+      { status: 400 },
     );
   }
 

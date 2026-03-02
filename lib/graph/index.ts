@@ -10,6 +10,8 @@ import { architectureNode } from "./nodes/architectureNode";
 import { triageNode } from "./nodes/triageNode";
 import { createPrNode } from "./nodes/createPrNode";
 import { updateJiraStatusNode } from "./nodes/updateJiraStatusNode";
+import { RedisSaver } from "./redis-checkpointer";
+import { redis } from "../cache";
 
 /**
  * Resolves the engineer node name from the execution plan's engineerType.
@@ -144,5 +146,8 @@ const workflow = new StateGraph(AgentState)
   .addEdge("createPrNode", "updateJiraStatusNode")
   .addEdge("updateJiraStatusNode", END);
 
+// Initialize checkpointer
+const checkpointer = redis ? new RedisSaver(redis) : undefined;
+
 // Compile the graph
-export const graph = workflow.compile();
+export const graph = workflow.compile({ checkpointer });
