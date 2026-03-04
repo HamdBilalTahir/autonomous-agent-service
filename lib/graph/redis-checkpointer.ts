@@ -1,10 +1,8 @@
 import {
   BaseCheckpointSaver,
   Checkpoint,
-  CheckpointListOptions,
   CheckpointMetadata,
   CheckpointTuple,
-  SerializerProtocol,
   PendingWrite,
 } from "@langchain/langgraph-checkpoint";
 import { RunnableConfig } from "@langchain/core/runnables";
@@ -73,14 +71,12 @@ export class RedisSaver extends BaseCheckpointSaver {
       checkpoint: parsed.checkpoint,
       metadata: parsed.metadata,
       parentConfig: parsed.parentConfig,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       pendingWrites: pendingWrites as any,
     };
   }
 
-  async *list(
-    config: RunnableConfig,
-    options?: CheckpointListOptions,
-  ): AsyncGenerator<CheckpointTuple> {
+  async *list(config: RunnableConfig): AsyncGenerator<CheckpointTuple> {
     const thread_id = config.configurable?.thread_id;
     const checkpoint_ns = config.configurable?.checkpoint_ns ?? "";
 

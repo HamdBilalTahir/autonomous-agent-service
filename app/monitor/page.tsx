@@ -106,10 +106,10 @@ export default function MonitorPage() {
   const fetchTickets = useCallback(async () => {
     try {
       // 1. Load local tickets first (backup/offline mode)
-      const localRaw = localStorage.getItem("generated_tickets");
-      const localTickets: { key: string; summary: string }[] = localRaw
-        ? JSON.parse(localRaw)
-        : [];
+      // const localRaw = localStorage.getItem("generated_tickets");
+      // const localTickets: { key: string; summary: string }[] = localRaw
+      //   ? JSON.parse(localRaw)
+      //   : [];
 
       // 2. Try to fetch fresh data from API
       const res = await fetch("/api/tickets");

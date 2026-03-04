@@ -1,3 +1,54 @@
+## 🗓️ **2026-03-04**
+
+---
+
+### ✨ Features
+
+---
+
+> ### Development Tools & Makefile Setup
+>
+> - **What changed:** Added a `Makefile` with targets for `lint`, `format`, `test`, and frontend workflow. Created a `tools` directory and set up `husky` with `lint-staged` for pre-commit checks.
+> - **Why:** To standardize development commands and enforce code quality (linting/formatting) automatically before commits.
+> - **Files:**
+>   - `Makefile`
+>   - `tools/`
+>   - `.husky/`
+>   - `package.json`
+
+---
+
+### 🐛 Fixes
+
+---
+
+> ### Comprehensive Linting Fixes (Strict Type Safety)
+>
+> - **What changed:** Resolved 49+ ESLint errors across the codebase, primarily targeting `no-explicit-any` and `no-unused-vars` rules. This involved adding proper types (or explicit suppressions where necessary), removing unused variables, and enabling safe error handling patterns in API routes and library modules. Configured `.eslintrc.json` to enforce Next.js and TypeScript best practices.
+> - **Why:** The codebase contained numerous loose types (`any`) and unused variables which cluttered the code and bypassed type safety checks. Fixing these ensures a more robust and maintainable codebase that passes strict linting checks in CI/CD.
+> - **Files:**
+>   - `.eslintrc.json`
+>   - `app/api/auth/[...nextauth]/route.ts`
+>   - `app/api/branches/route.ts`
+>   - `app/api/chat/route.ts`
+>   - `app/api/create-jira-ticket/route.ts`
+>   - `app/api/process-ticket/route.ts`
+>   - `app/api/repos/[owner]/[repo]/branches/route.ts`
+>   - `app/api/test/route.ts`
+>   - `app/api/user/repos/route.ts`
+>   - `app/api/webhook/route.ts`
+>   - `app/components/RepoSelector.tsx`
+>   - `app/components/RequirementGathering.tsx`
+>   - `app/monitor/page.tsx`
+>   - `jest.config.js`
+>   - `lib/github.ts`
+>   - `lib/graph/metrics-utils.ts`
+>   - `lib/graph/nodes/emNode.ts`
+>   - `lib/graph/redis-checkpointer.ts`
+>   - `lib/jira.ts`
+>   - `lib/project-context.ts`
+>   - `lib/utils/retry.ts`
+
 ## 🗓️ **2026-03-02**
 
 ---

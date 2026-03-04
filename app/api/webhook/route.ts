@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     // Verify ticket still exists (handles deleted tickets)
     try {
       await jira.getTicket(ticketId!);
-    } catch (error) {
+    } catch {
       console.log(`[Webhook] Ignored ${ticketId}: Ticket not found or deleted`);
       return NextResponse.json({
         status: "ignored",
@@ -64,7 +64,8 @@ export async function POST(req: NextRequest) {
     if (
       rawDescription &&
       typeof rawDescription === "object" &&
-      Array.isArray((rawDescription as any).content)
+      "content" in rawDescription &&
+      Array.isArray((rawDescription as { content: unknown }).content)
     ) {
       const adf = rawDescription as {
         content: { content?: { text?: string }[] }[];
@@ -82,7 +83,8 @@ export async function POST(req: NextRequest) {
         targetOwner = githubMatch[1];
         targetRepo = githubMatch[2];
         targetBranch = githubMatch[3];
-        description = { ...adf, content: adf.content.slice(1) } as any;
+        description = { ...adf, content: adf.content.slice(1) };
+      } else if (firstParaTexts.startsWith("AGENT_META:")) {
       } else if (firstParaTexts.startsWith("AGENT_META:")) {
         // Legacy format
         try {
@@ -90,7 +92,7 @@ export async function POST(req: NextRequest) {
           if (meta.owner) targetOwner = meta.owner;
           if (meta.repo) targetRepo = meta.repo;
           if (meta.branch) targetBranch = meta.branch;
-          description = { ...adf, content: adf.content.slice(1) } as any;
+          description = { ...adf, content: adf.content.slice(1) };
         } catch {
           console.warn(`[Webhook][${ticketId}] Failed to parse AGENT_META`);
         }
@@ -231,8 +233,9 @@ export async function POST(req: NextRequest) {
       await setCached(`processing:${ticketId}`, "false", 1);
       console.log(`[Webhook] released processing lock for ${ticketId}`);
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error("[Webhook] Error:", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
 
     // Attempt rollback: restore ticket status and leave a comment so the issue
     // is visible in Jira rather than silently stuck "In Progress".
@@ -245,7 +248,7 @@ export async function POST(req: NextRequest) {
         );
         await jira.addComment(
           ticketId,
-          `❌ **Agent Workflow Failed**\n\nError: ${error.message}\n\nPlease check server logs and reset status manually if needed.`,
+          `❌ **Agent Workflow Failed**\n\nError: ${errorMessage}\n\nPlease check server logs and reset status manually if needed.`,
         );
         await jira.transitionTicket(ticketId, "To Do");
         // Clear the agent_update flag so the ticket can be re-processed after a manual reset
@@ -256,7 +259,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { status: "error", message: error.message },
+      { status: "error", message: errorMessage },
       { status: 500 },
     );
   }

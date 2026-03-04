@@ -105,8 +105,9 @@ export async function POST(req: NextRequest) {
       ticketId,
       prUrl: prUrl,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error processing ticket:", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
 
     // Attempt to recover/compensate
     try {
@@ -121,7 +122,7 @@ export async function POST(req: NextRequest) {
         console.log(`[Process Ticket] Attempting rollback for ${ticketId}...`);
         await jira.addComment(
           ticketId,
-          `❌ **Agent Workflow Failed**\n\nError: ${error.message}\n\nPlease check logs and reset status manually if needed.`,
+          `❌ **Agent Workflow Failed**\n\nError: ${errorMessage}\n\nPlease check logs and reset status manually if needed.`,
         );
 
         // Attempt to move back to "Selected for Development" or "To Do"
@@ -133,7 +134,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: "Internal Server Error", details: error.message },
+      { error: "Internal Server Error", details: errorMessage },
       { status: 500 },
     );
   } finally {

@@ -117,10 +117,13 @@ export async function POST(req: NextRequest) {
       message: "Jira ticket created successfully",
       data: data,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Internal Error:", error);
     return NextResponse.json(
-      { error: "Internal Server Error", details: error.message },
+      {
+        error: "Internal Server Error",
+        details: error instanceof Error ? error.message : String(error),
+      },
       { status: 500 },
     );
   }

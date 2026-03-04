@@ -108,7 +108,7 @@ export async function POST(req: Request) {
               ),
             );
           }
-        } catch (err) {
+        } catch {
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify({ type: "error" })}\n\n`),
           );
@@ -149,7 +149,7 @@ export async function POST(req: Request) {
         Connection: "keep-alive",
       },
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Chat API Error:", error);
     return Response.json(
       { error: "Failed to process chat request" },

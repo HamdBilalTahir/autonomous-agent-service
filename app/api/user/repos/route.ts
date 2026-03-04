@@ -4,6 +4,7 @@ import { Octokit } from "@octokit/rest";
 import { authOptions } from "../../auth/[...nextauth]/route";
 
 export async function GET(request: Request) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const session: any = await getServerSession(authOptions);
 
   if (!session || !session.accessToken) {
@@ -55,9 +56,10 @@ export async function GET(request: Request) {
     const hasMore = userRepos.length === 100 || orgRepos.length === 100;
 
     return NextResponse.json({ repos: merged, hasMore });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Failed to fetch repos:", error);
-    if (error.status === 401) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((error as any).status === 401) {
       return NextResponse.json({ error: "Token expired" }, { status: 401 });
     }
     return NextResponse.json(

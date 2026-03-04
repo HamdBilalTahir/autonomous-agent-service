@@ -7,6 +7,7 @@ export async function GET(
   request: Request,
   { params }: { params: { owner: string; repo: string } },
 ) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const session: any = await getServerSession(authOptions);
 
   if (!session || !session.accessToken) {
@@ -31,9 +32,10 @@ export async function GET(
       defaultBranch: repoInfo.default_branch,
       hasMore: branches.length === 100,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Failed to fetch branches:", error);
-    if (error.status === 401) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((error as any).status === 401) {
       return NextResponse.json({ error: "Token expired" }, { status: 401 });
     }
     return NextResponse.json(

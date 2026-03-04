@@ -110,13 +110,14 @@ export class JiraService {
       // Note: We don't wrap this internal call in another withRetry since it's already wrapped
       const transitionsData = await this.getTransitions(ticketId);
       const transition = transitionsData.transitions.find(
-        (t: any) => t.name.toLowerCase() === targetStatus.toLowerCase(),
+        (t: { name: string; id: string }) =>
+          t.name.toLowerCase() === targetStatus.toLowerCase(),
       );
 
       if (!transition) {
         console.warn(
           `Transition to status "${targetStatus}" not found for ticket ${ticketId}. Available transitions: ${transitionsData.transitions
-            .map((t: any) => t.name)
+            .map((t: { name: string }) => t.name)
             .join(", ")}`,
         );
         return; // Or throw error, but maybe we just want to proceed
@@ -146,6 +147,7 @@ export class JiraService {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async addComment(ticketId: string, comment: string | any) {
     const logComment =
       typeof comment === "string" ? comment : "Structured ADF comment";
@@ -213,8 +215,11 @@ export class JiraService {
         }
       });
       console.log(`[Jira] Successfully deleted comment ${commentId}`);
-    } catch (e: any) {
-      console.warn(`[Jira] Failed to delete comment ${commentId}:`, e.message);
+    } catch (e) {
+      console.warn(
+        `[Jira] Failed to delete comment ${commentId}:`,
+        (e as Error).message,
+      );
     }
   }
 
@@ -266,7 +271,7 @@ export class JiraService {
       console.log(
         `[Jira] Successfully linked PR and transitioned ticket ${ticketKey}`,
       );
-    } catch (error: any) {
+    } catch (error) {
       console.error(
         `[Jira] Failed to link PR and transition ticket ${ticketKey}:`,
         error,
@@ -302,7 +307,7 @@ export class JiraService {
 
         const fields = await response.json();
         const storyPointsField = fields.find(
-          (f: any) =>
+          (f: { name: string; id: string }) =>
             f.name === "Story point estimate" || f.name === "Story Points",
         );
 
@@ -326,6 +331,7 @@ export class JiraService {
     data: { priority?: string; storyPoints?: number },
   ) {
     const { priority, storyPoints } = data;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fields: Record<string, any> = {};
 
     if (priority) {
@@ -379,7 +385,7 @@ export class JiraService {
 
         console.log(`[Jira] Successfully updated metadata for ${ticketKey}`);
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error(
         `[Jira] Failed to update metadata for ${ticketKey}:`,
         error,

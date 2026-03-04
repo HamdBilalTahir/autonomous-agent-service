@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { JiraService } from "../../../lib/jira";
 import { GitHubService } from "../../../lib/github";
 
 export const maxDuration = 300;
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   const envStatus = {
     OLLAMA_URL: process.env.OLLAMA_URL ? "configured" : "missing",
     GITHUB_TOKEN: process.env.GITHUB_TOKEN ? "configured" : "missing",
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 
   console.log("Environment Status Check:", JSON.stringify(envStatus, null, 2));
 
-  let health: any = {
+  let health: Record<string, string | boolean> = {
     github: "unknown",
     jira: "unknown",
     ollama: "unknown",
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
       try {
         const response = await fetch(`${process.env.OLLAMA_URL}/api/tags`);
         ollamaHealth = response.ok ? "healthy" : "unreachable";
-      } catch (e) {
+      } catch {
         ollamaHealth = "unreachable";
       }
     }
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
       github: githubHealth,
       ollama: ollamaHealth,
     };
-  } catch (e: any) {
+  } catch (e) {
     console.error("Health check failed:", e);
   }
 

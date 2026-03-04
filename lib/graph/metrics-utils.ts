@@ -1,6 +1,7 @@
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import { LLMResult } from "@langchain/core/outputs";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function extractTokenUsage(response: any): {
   prompt: number;
   completion: number;
@@ -28,6 +29,7 @@ export function createTokenUsageCallback(usageRef: {
   return class TokenUsageHandler extends BaseCallbackHandler {
     name = "TokenUsageHandler";
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private _extractAndAccumulate(llmOutput: Record<string, any> | undefined) {
       if (!llmOutput) return;
       // Check all known token usage locations:
@@ -124,6 +126,7 @@ const NODE_MODEL_MAPPING: Record<
  * Extracted from both route handlers to eliminate duplication.
  */
 export function logPerformanceReport(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   metrics: Record<string, any> | undefined,
   ticketId: string,
   summary: string,
@@ -143,7 +146,7 @@ export function logPerformanceReport(
   const tableData = Object.entries(metrics?.nodeCallCounts || {}).map(
     ([nodeName, count]) => {
       let duration = 0;
-      let tokenUsage = { prompt: 0, completion: 0, total: 0 };
+      const tokenUsage = { prompt: 0, completion: 0, total: 0 };
 
       if (metrics?.nodeExecutionTimes?.[nodeName]) {
         duration += metrics.nodeExecutionTimes[nodeName] as number;

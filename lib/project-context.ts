@@ -76,7 +76,7 @@ export async function analyzeProjectContext(
         } else {
           return await readFile(path, "utf-8");
         }
-      } catch (e) {
+      } catch {
         // continue to next path
       }
     }

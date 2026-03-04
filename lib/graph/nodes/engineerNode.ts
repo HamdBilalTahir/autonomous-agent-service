@@ -440,7 +440,7 @@ ${(executionPlan?.filesToModify || []).join("\n")}
 
     const recentErrorHistory = (errorAttemptHistory || []).slice(-3);
 
-    let totalTokenUsage = { prompt: 0, completion: 0, total: 0 };
+    const totalTokenUsage = { prompt: 0, completion: 0, total: 0 };
 
     const CONCURRENCY = 5;
 
@@ -483,7 +483,7 @@ ${(executionPlan?.filesToModify || []).join("\n")}
       let previousContent: string | undefined = isTargetedFix
         ? (existingCode || []).find((f) => f.filePath === filePath)?.fileContent
         : undefined;
-      let fileUsage = { prompt: 0, completion: 0, total: 0 };
+      const fileUsage = { prompt: 0, completion: 0, total: 0 };
 
       for (let attempt = 0; attempt < MAX_FILE_ATTEMPTS; attempt++) {
         // ── PATCH MODE (attempt 0 only, when we have prior content + single-file errors) ──

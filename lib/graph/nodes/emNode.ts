@@ -113,7 +113,9 @@ export async function emNode(state: typeof AgentState.State) {
   );
 
   // Generate the execution plan with retries
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let raw: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let result: any;
   let attempt = 0;
   const maxRetries = 3;
@@ -133,9 +135,9 @@ export async function emNode(state: typeof AgentState.State) {
       console.warn(
         `[EM Node][${state.ticketId}] Attempt ${attempt}/${maxRetries} returned null structured output. Retrying...`,
       );
-    } catch (e: any) {
+    } catch (e) {
       console.warn(
-        `[EM Node][${state.ticketId}] Attempt ${attempt}/${maxRetries} failed with error: ${e.message}. Retrying...`,
+        `[EM Node][${state.ticketId}] Attempt ${attempt}/${maxRetries} failed with error: ${(e as Error).message}. Retrying...`,
       );
     }
     // Simple backoff

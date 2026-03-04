@@ -8,7 +8,7 @@ export async function withRetry<T>(
   while (attempt < retries) {
     try {
       return await fn();
-    } catch (error: any) {
+    } catch (error) {
       attempt++;
       if (attempt >= retries) {
         throw error;
@@ -16,7 +16,7 @@ export async function withRetry<T>(
 
       console.warn(
         `Retry attempt ${attempt}/${retries} failed. Retrying in ${delay}ms...`,
-        error.message,
+        (error as Error).message,
       );
 
       await new Promise((resolve) => setTimeout(resolve, delay));

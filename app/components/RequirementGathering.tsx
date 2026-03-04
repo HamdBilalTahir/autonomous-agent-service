@@ -277,7 +277,7 @@ export default function RequirementGathering({
             repoOwner,
             repoName,
             branch: selectedBranch,
-            githubToken: (session as any)?.accessToken,
+            githubToken: (session as { accessToken?: string })?.accessToken,
           }),
         });
 

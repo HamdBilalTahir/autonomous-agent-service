@@ -25,7 +25,7 @@ export async function GET(request: Request) {
     const github = new GitHubService(token);
     const branches = await github.listBranches(owner, repo);
     return NextResponse.json({ branches });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Failed to fetch branches:", error);
     return NextResponse.json(
       { error: "Failed to fetch branches" },
