@@ -8,7 +8,11 @@ import { setPipelineState, clearPipelineState } from "../../pipeline-state";
  */
 export async function updateJiraStatusNode(state: typeof AgentState.State) {
   const startTime = Date.now();
-  await setPipelineState(state.ticketId, state.ticketSummary, "updateJiraStatusNode");
+  await setPipelineState(
+    state.ticketId,
+    state.ticketSummary,
+    "updateJiraStatusNode",
+  );
   const { ticketId, prUrl } = state;
 
   if (!prUrl) {

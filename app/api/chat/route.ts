@@ -62,10 +62,12 @@ export async function POST(req: Request) {
     // Flash is 5-10x faster than Pro for conversational tasks
     const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
-    const chatHistory = messages.map((m: { role: string; content: string }) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
-    }));
+    const chatHistory = messages.map(
+      (m: { role: string; content: string }) => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: m.content }],
+      }),
+    );
 
     const repoContext = repo ? `Repository: ${repo.full_name}` : "";
     const contextString = `Context: Working on branch "${branch}". ${repoContext}`;
@@ -78,7 +80,11 @@ export async function POST(req: Request) {
         },
         {
           role: "model",
-          parts: [{ text: "Understood. I am ready to help you define your user story. What feature are you working on?" }],
+          parts: [
+            {
+              text: "Understood. I am ready to help you define your user story. What feature are you working on?",
+            },
+          ],
         },
         ...chatHistory.slice(0, -1),
       ],
@@ -97,7 +103,9 @@ export async function POST(req: Request) {
             const text = chunk.text();
             fullText += text;
             controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ type: "text", content: text })}\n\n`),
+              encoder.encode(
+                `data: ${JSON.stringify({ type: "text", content: text })}\n\n`,
+              ),
             );
           }
         } catch (err) {

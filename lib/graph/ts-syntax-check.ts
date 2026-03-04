@@ -55,8 +55,9 @@ export function checkTsSyntax(filePath: string, content: string): string[] {
   const errors: string[] = [];
   for (const diag of syntacticDiags) {
     if (diag.start !== undefined && diag.file) {
-      const { line, character } =
-        diag.file.getLineAndCharacterOfPosition(diag.start);
+      const { line, character } = diag.file.getLineAndCharacterOfPosition(
+        diag.start,
+      );
       const message = ts.flattenDiagnosticMessageText(diag.messageText, " ");
       errors.push(
         `[CRITICAL] ${filePath}:${line + 1}:${character + 1} - SYNTAX ERROR: ${message}. REPAIR HINT: Fix the TypeScript syntax error at line ${line + 1}.`,

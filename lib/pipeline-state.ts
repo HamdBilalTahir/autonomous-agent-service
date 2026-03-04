@@ -77,7 +77,12 @@ export async function setValidationProgress(
   round: number,
 ): Promise<void> {
   try {
-    const progress: ValidationProgress = { passed, total, round, updatedAt: Date.now() };
+    const progress: ValidationProgress = {
+      passed,
+      total,
+      round,
+      updatedAt: Date.now(),
+    };
     await setCached(PROGRESS_KEY(ticketId), JSON.stringify(progress), TTL);
   } catch {
     // non-blocking

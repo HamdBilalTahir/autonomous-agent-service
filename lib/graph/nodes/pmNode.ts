@@ -14,7 +14,12 @@ import { setPipelineState } from "../../pipeline-state";
 export async function pmNode(state: typeof AgentState.State) {
   const startTime = Date.now();
   await setPipelineState(state.ticketId, state.ticketSummary, "pmNode");
-  const { ticketSummary, ticketDescription, architectureProfile, codebaseTree } = state;
+  const {
+    ticketSummary,
+    ticketDescription,
+    architectureProfile,
+    codebaseTree,
+  } = state;
 
   console.log(
     `\n🧠 [PM Node] Starting analysis for ticket (ID: ${state.ticketId}):`,

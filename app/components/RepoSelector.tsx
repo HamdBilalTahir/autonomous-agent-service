@@ -1,10 +1,21 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useSession, signIn, signOut } from 'next-auth/react';
-import { ChevronDown, GitBranch, Search, Check, Loader2, Github, Book, LogOut, AlertCircle, RefreshCw } from 'lucide-react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useSession, signIn, signOut } from "next-auth/react";
+import {
+  ChevronDown,
+  GitBranch,
+  Search,
+  Check,
+  Loader2,
+  Github,
+  Book,
+  LogOut,
+  AlertCircle,
+  RefreshCw,
+} from "lucide-react";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -36,8 +47,8 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
   const [isRepoOpen, setIsRepoOpen] = useState(false);
   const [isBranchOpen, setIsBranchOpen] = useState(false);
 
-  const [repoSearchQuery, setRepoSearchQuery] = useState('');
-  const [branchSearchQuery, setBranchSearchQuery] = useState('');
+  const [repoSearchQuery, setRepoSearchQuery] = useState("");
+  const [branchSearchQuery, setBranchSearchQuery] = useState("");
 
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
@@ -62,17 +73,19 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
     try {
       const response = await fetch(`/api/user/repos?page=${page}`);
       if (response.status === 401) {
-        setRepoError('session_expired');
+        setRepoError("session_expired");
         return;
       }
       const data = await response.json();
       if (data.repos) {
-        setRepos((prev) => page === 1 ? data.repos : [...prev, ...data.repos]);
+        setRepos((prev) =>
+          page === 1 ? data.repos : [...prev, ...data.repos],
+        );
         setReposHasMore(data.hasMore ?? false);
         setRepoPage(page);
       }
     } catch {
-      setRepoError('fetch_failed');
+      setRepoError("fetch_failed");
     } finally {
       setIsLoadingRepos(false);
       setIsLoadingMoreRepos(false);
@@ -85,15 +98,17 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
     setBranchError(null);
     try {
       const response = await fetch(
-        `/api/repos/${repo.owner.login}/${repo.name}/branches?page=${page}`
+        `/api/repos/${repo.owner.login}/${repo.name}/branches?page=${page}`,
       );
       if (response.status === 401) {
-        setBranchError('session_expired');
+        setBranchError("session_expired");
         return;
       }
       const data = await response.json();
       if (data.branches) {
-        setBranches((prev) => page === 1 ? data.branches : [...prev, ...data.branches]);
+        setBranches((prev) =>
+          page === 1 ? data.branches : [...prev, ...data.branches],
+        );
         setBranchesHasMore(data.hasMore ?? false);
         setBranchPage(page);
         if (page === 1 && data.defaultBranch) {
@@ -102,7 +117,7 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
         }
       }
     } catch {
-      setBranchError('fetch_failed');
+      setBranchError("fetch_failed");
     } finally {
       setIsLoadingBranches(false);
       setIsLoadingMoreBranches(false);
@@ -116,32 +131,32 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
     const top = Math.round(window.screenY + (window.outerHeight - height) / 2);
 
     const popup = window.open(
-      '/auth/signin-popup',
-      'github-signin',
+      "/auth/signin-popup",
+      "github-signin",
       `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`,
     );
 
     if (!popup) {
-      signIn('github');
+      signIn("github");
       return;
     }
 
     const onMessage = async (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
-      if (event.data?.type === 'GITHUB_AUTH_SUCCESS') {
-        window.removeEventListener('message', onMessage);
+      if (event.data?.type === "GITHUB_AUTH_SUCCESS") {
+        window.removeEventListener("message", onMessage);
         popup.close();
         await update();
         fetchRepos(1);
       }
     };
 
-    window.addEventListener('message', onMessage);
+    window.addEventListener("message", onMessage);
   }, [update, fetchRepos]);
 
   // Fetch repos on auth
   useEffect(() => {
-    if (status === 'authenticated') {
+    if (status === "authenticated") {
       fetchRepos(1);
     }
   }, [status, fetchRepos]);
@@ -164,15 +179,21 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
   // Handle outside clicks
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (repoDropdownRef.current && !repoDropdownRef.current.contains(event.target as Node)) {
+      if (
+        repoDropdownRef.current &&
+        !repoDropdownRef.current.contains(event.target as Node)
+      ) {
         setIsRepoOpen(false);
       }
-      if (branchDropdownRef.current && !branchDropdownRef.current.contains(event.target as Node)) {
+      if (
+        branchDropdownRef.current &&
+        !branchDropdownRef.current.contains(event.target as Node)
+      ) {
         setIsBranchOpen(false);
       }
     }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const handleRepoSelect = (repo: Repo) => {
@@ -192,14 +213,14 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
   };
 
   const filteredRepos = repos.filter((repo) =>
-    repo.full_name.toLowerCase().includes(repoSearchQuery.toLowerCase())
+    repo.full_name.toLowerCase().includes(repoSearchQuery.toLowerCase()),
   );
 
   const filteredBranches = branches.filter((branch) =>
-    branch.toLowerCase().includes(branchSearchQuery.toLowerCase())
+    branch.toLowerCase().includes(branchSearchQuery.toLowerCase()),
   );
 
-  if (status === 'loading') {
+  if (status === "loading") {
     return (
       <div className="w-full flex justify-center p-4">
         <Loader2 className="w-6 h-6 animate-spin text-primary" />
@@ -207,7 +228,7 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
     );
   }
 
-  if (status === 'unauthenticated') {
+  if (status === "unauthenticated") {
     return (
       <div className="w-full text-center">
         <button
@@ -229,8 +250,8 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <img
-            src={session?.user?.image || ''}
-            alt={session?.user?.name || 'User'}
+            src={session?.user?.image || ""}
+            alt={session?.user?.name || "User"}
             className="w-8 h-8 rounded-full border border-slate-200"
           />
           <div className="text-sm">
@@ -259,21 +280,37 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
               isRepoOpen
                 ? "border-primary ring-2 ring-primary/20 shadow-md"
                 : "border-slate-200 hover:border-primary/50 hover:shadow-md",
-              "text-left focus:outline-none"
+              "text-left focus:outline-none",
             )}
           >
             <div className="flex items-center gap-3 truncate">
-              <div className={cn(
-                "p-1.5 rounded-md transition-colors",
-                selectedRepo ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-500"
-              )}>
+              <div
+                className={cn(
+                  "p-1.5 rounded-md transition-colors",
+                  selectedRepo
+                    ? "bg-primary/10 text-primary"
+                    : "bg-slate-100 text-slate-500",
+                )}
+              >
                 <Book className="w-4 h-4" />
               </div>
-              <span className={cn("block truncate font-medium", !selectedRepo && "text-slate-400")}>
-                {selectedRepo ? selectedRepo.full_name : "Select a repository..."}
+              <span
+                className={cn(
+                  "block truncate font-medium",
+                  !selectedRepo && "text-slate-400",
+                )}
+              >
+                {selectedRepo
+                  ? selectedRepo.full_name
+                  : "Select a repository..."}
               </span>
             </div>
-            <ChevronDown className={cn("w-4 h-4 text-slate-400 transition-transform duration-200", isRepoOpen && "rotate-180 text-primary")} />
+            <ChevronDown
+              className={cn(
+                "w-4 h-4 text-slate-400 transition-transform duration-200",
+                isRepoOpen && "rotate-180 text-primary",
+              )}
+            />
           </button>
 
           {isRepoOpen && (
@@ -298,10 +335,12 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
                     <Loader2 className="w-5 h-5 animate-spin mr-2 text-primary" />
                     <span className="text-sm">Loading repos...</span>
                   </div>
-                ) : repoError === 'session_expired' ? (
+                ) : repoError === "session_expired" ? (
                   <div className="flex flex-col items-center gap-3 py-8 px-4 text-center">
                     <AlertCircle className="w-5 h-5 text-amber-500" />
-                    <p className="text-sm text-slate-600">Session expired. Please reconnect your GitHub account.</p>
+                    <p className="text-sm text-slate-600">
+                      Session expired. Please reconnect your GitHub account.
+                    </p>
                     <button
                       onClick={() => openSignInPopup()}
                       className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#24292F] rounded-lg hover:bg-[#24292F]/90 transition-colors"
@@ -312,7 +351,9 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
                 ) : repoError ? (
                   <div className="flex flex-col items-center gap-3 py-8 px-4 text-center">
                     <AlertCircle className="w-5 h-5 text-red-500" />
-                    <p className="text-sm text-slate-600">Failed to load repositories.</p>
+                    <p className="text-sm text-slate-600">
+                      Failed to load repositories.
+                    </p>
                     <button
                       onClick={() => fetchRepos(1)}
                       className="text-sm text-primary hover:underline"
@@ -335,11 +376,18 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
                               "w-full flex items-center justify-between px-4 py-3 text-sm transition-all border-l-2",
                               selectedRepo?.id === repo.id
                                 ? "border-primary bg-primary-surface/50 text-primary-dark font-medium"
-                                : "border-transparent text-slate-600 hover:bg-slate-50 hover:border-slate-300"
+                                : "border-transparent text-slate-600 hover:bg-slate-50 hover:border-slate-300",
                             )}
                           >
                             <div className="flex items-center gap-3 truncate">
-                              <Book className={cn("w-4 h-4 flex-shrink-0", selectedRepo?.id === repo.id ? "text-primary" : "text-slate-400")} />
+                              <Book
+                                className={cn(
+                                  "w-4 h-4 flex-shrink-0",
+                                  selectedRepo?.id === repo.id
+                                    ? "text-primary"
+                                    : "text-slate-400",
+                                )}
+                              />
                               <span className="truncate">{repo.full_name}</span>
                             </div>
                             {selectedRepo?.id === repo.id && (
@@ -356,10 +404,14 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
                           disabled={isLoadingMoreRepos}
                           className="w-full flex items-center justify-center gap-2 py-2 text-sm text-primary hover:text-primary/80 disabled:opacity-50 transition-colors"
                         >
-                          {isLoadingMoreRepos
-                            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading...</>
-                            : 'Load more repositories'
-                          }
+                          {isLoadingMoreRepos ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />{" "}
+                              Loading...
+                            </>
+                          ) : (
+                            "Load more repositories"
+                          )}
                         </button>
                       </div>
                     )}
@@ -376,7 +428,10 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
             Target Branch
           </label>
           <button
-            onClick={() => !(!selectedRepo || isLoadingBranches) && setIsBranchOpen(!isBranchOpen)}
+            onClick={() =>
+              !(!selectedRepo || isLoadingBranches) &&
+              setIsBranchOpen(!isBranchOpen)
+            }
             disabled={!selectedRepo || isLoadingBranches}
             className={cn(
               "w-full flex items-center justify-between px-4 py-3 bg-white border rounded-xl shadow-sm transition-all duration-200",
@@ -384,21 +439,42 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
                 ? "border-primary ring-2 ring-primary/20 shadow-md"
                 : "border-slate-200 hover:border-primary/50 hover:shadow-md",
               "text-left focus:outline-none",
-              (!selectedRepo || isLoadingBranches) && "opacity-50 cursor-not-allowed bg-slate-50"
+              (!selectedRepo || isLoadingBranches) &&
+                "opacity-50 cursor-not-allowed bg-slate-50",
             )}
           >
             <div className="flex items-center gap-3 truncate">
-              <div className={cn(
-                "p-1.5 rounded-md transition-colors",
-                selectedBranch ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-500"
-              )}>
-                {isLoadingBranches ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitBranch className="w-4 h-4" />}
+              <div
+                className={cn(
+                  "p-1.5 rounded-md transition-colors",
+                  selectedBranch
+                    ? "bg-primary/10 text-primary"
+                    : "bg-slate-100 text-slate-500",
+                )}
+              >
+                {isLoadingBranches ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <GitBranch className="w-4 h-4" />
+                )}
               </div>
-              <span className={cn("block truncate font-medium", !selectedBranch && "text-slate-400")}>
-                {isLoadingBranches ? "Loading branches..." : (selectedBranch || "Select a branch...")}
+              <span
+                className={cn(
+                  "block truncate font-medium",
+                  !selectedBranch && "text-slate-400",
+                )}
+              >
+                {isLoadingBranches
+                  ? "Loading branches..."
+                  : selectedBranch || "Select a branch..."}
               </span>
             </div>
-            <ChevronDown className={cn("w-4 h-4 text-slate-400 transition-transform duration-200", isBranchOpen && "rotate-180 text-primary")} />
+            <ChevronDown
+              className={cn(
+                "w-4 h-4 text-slate-400 transition-transform duration-200",
+                isBranchOpen && "rotate-180 text-primary",
+              )}
+            />
           </button>
 
           {isBranchOpen && (
@@ -418,10 +494,12 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
               </div>
 
               <div className="max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent">
-                {branchError === 'session_expired' ? (
+                {branchError === "session_expired" ? (
                   <div className="flex flex-col items-center gap-3 py-8 px-4 text-center">
                     <AlertCircle className="w-5 h-5 text-amber-500" />
-                    <p className="text-sm text-slate-600">Session expired. Please reconnect your GitHub account.</p>
+                    <p className="text-sm text-slate-600">
+                      Session expired. Please reconnect your GitHub account.
+                    </p>
                     <button
                       onClick={() => openSignInPopup()}
                       className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#24292F] rounded-lg hover:bg-[#24292F]/90 transition-colors"
@@ -432,9 +510,13 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
                 ) : branchError ? (
                   <div className="flex flex-col items-center gap-3 py-8 px-4 text-center">
                     <AlertCircle className="w-5 h-5 text-red-500" />
-                    <p className="text-sm text-slate-600">Failed to load branches.</p>
+                    <p className="text-sm text-slate-600">
+                      Failed to load branches.
+                    </p>
                     <button
-                      onClick={() => selectedRepo && fetchBranches(selectedRepo, 1)}
+                      onClick={() =>
+                        selectedRepo && fetchBranches(selectedRepo, 1)
+                      }
                       className="text-sm text-primary hover:underline"
                     >
                       Try again
@@ -455,11 +537,18 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
                               "w-full flex items-center justify-between px-4 py-3 text-sm transition-all border-l-2",
                               selectedBranch === branch
                                 ? "border-primary bg-primary-surface/50 text-primary-dark font-medium"
-                                : "border-transparent text-slate-600 hover:bg-slate-50 hover:border-slate-300"
+                                : "border-transparent text-slate-600 hover:bg-slate-50 hover:border-slate-300",
                             )}
                           >
                             <div className="flex items-center gap-3 truncate">
-                              <GitBranch className={cn("w-4 h-4 flex-shrink-0", selectedBranch === branch ? "text-primary" : "text-slate-400")} />
+                              <GitBranch
+                                className={cn(
+                                  "w-4 h-4 flex-shrink-0",
+                                  selectedBranch === branch
+                                    ? "text-primary"
+                                    : "text-slate-400",
+                                )}
+                              />
                               <span className="truncate">{branch}</span>
                               {branch === defaultBranch && (
                                 <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-normal">
@@ -477,14 +566,21 @@ export default function RepoSelector({ onSelect }: RepoSelectorProps) {
                     {branchesHasMore && !branchSearchQuery && (
                       <div className="px-4 py-2 border-t border-slate-100">
                         <button
-                          onClick={() => selectedRepo && fetchBranches(selectedRepo, branchPage + 1)}
+                          onClick={() =>
+                            selectedRepo &&
+                            fetchBranches(selectedRepo, branchPage + 1)
+                          }
                           disabled={isLoadingMoreBranches}
                           className="w-full flex items-center justify-center gap-2 py-2 text-sm text-primary hover:text-primary/80 disabled:opacity-50 transition-colors"
                         >
-                          {isLoadingMoreBranches
-                            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading...</>
-                            : 'Load more branches'
-                          }
+                          {isLoadingMoreBranches ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />{" "}
+                              Loading...
+                            </>
+                          ) : (
+                            "Load more branches"
+                          )}
                         </button>
                       </div>
                     )}

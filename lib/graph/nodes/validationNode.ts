@@ -5,7 +5,10 @@ import { getValidationSystemPrompt } from "../prompts/validationPrompts";
 import { extractTokenUsage } from "../metrics-utils";
 import { setPipelineState, setValidationProgress } from "../../pipeline-state";
 import { withConcurrency } from "../concurrency";
-import { checkCrossFileImports, checkPackageImports } from "../ts-cross-file-check";
+import {
+  checkCrossFileImports,
+  checkPackageImports,
+} from "../ts-cross-file-check";
 
 /**
  * Extracts exported type/function/const signatures from a generated file.
@@ -214,10 +217,14 @@ export async function validationNode(state: typeof AgentState.State) {
         );
 
         // Timeout shrinks each attempt: full prompt gets 300s; stripped retries get much less.
-        const timeoutMs = ATTEMPT_TIMEOUTS[Math.min(attempt - 1, ATTEMPT_TIMEOUTS.length - 1)];
+        const timeoutMs =
+          ATTEMPT_TIMEOUTS[Math.min(attempt - 1, ATTEMPT_TIMEOUTS.length - 1)];
         const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(
-            () => reject(new Error(`Validation timed out after ${timeoutMs / 1000}s`)),
+            () =>
+              reject(
+                new Error(`Validation timed out after ${timeoutMs / 1000}s`),
+              ),
             timeoutMs,
           ),
         );
@@ -399,8 +406,7 @@ export async function validationNode(state: typeof AgentState.State) {
       // EM receives only realErrors so it doesn't hallucinate infrastructure fixes
       // for what are actually transient system retries.
       const systemErrors = criticalErrors.filter(
-        (e) =>
-          e.includes("Validation process failed") || e.includes("timeout"),
+        (e) => e.includes("Validation process failed") || e.includes("timeout"),
       );
       const realErrors = criticalErrors.filter(
         (e) => !systemErrors.includes(e),
@@ -492,7 +498,12 @@ export async function validationNode(state: typeof AgentState.State) {
     // Store progress for the 5-min periodic logger in the webhook
     const totalFiles = generatedCode?.length ?? 0;
     const passedFiles = totalFiles - filesNeedingRevision.length;
-    await setValidationProgress(state.ticketId, passedFiles, totalFiles, currentRound);
+    await setValidationProgress(
+      state.ticketId,
+      passedFiles,
+      totalFiles,
+      currentRound,
+    );
 
     return {
       needsRevision,

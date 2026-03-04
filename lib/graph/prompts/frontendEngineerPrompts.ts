@@ -4,10 +4,14 @@ import { ArchitectureProfile } from "../schema";
  * Helper to get file-specific requirements based on the file path.
  */
 function getFileRequirements(filePath: string): string {
-  if (filePath.includes("components/")) return "Default export component, TypeScript props interface, Tailwind styling, accessibility attributes, error/loading states.";
-  if (filePath.includes("hooks/")) return "Named export hook, explicit TypeScript return type, loading/error/success states, useEffect cleanup.";
-  if (filePath.includes("utils/")) return "Named export pure functions, TypeScript types, input validation, error handling.";
-  if (filePath.includes("api/")) return "HTTP status codes, TypeScript request/response interfaces, error handling, input validation.";
+  if (filePath.includes("components/"))
+    return "Default export component, TypeScript props interface, Tailwind styling, accessibility attributes, error/loading states.";
+  if (filePath.includes("hooks/"))
+    return "Named export hook, explicit TypeScript return type, loading/error/success states, useEffect cleanup.";
+  if (filePath.includes("utils/"))
+    return "Named export pure functions, TypeScript types, input validation, error handling.";
+  if (filePath.includes("api/"))
+    return "HTTP status codes, TypeScript request/response interfaces, error handling, input validation.";
   return "Follow TypeScript and React best practices.";
 }
 

@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import { useEffect } from 'react';
-import { signIn } from 'next-auth/react';
-import { Loader2 } from 'lucide-react';
+import { useEffect } from "react";
+import { signIn } from "next-auth/react";
+import { Loader2 } from "lucide-react";
 
 export default function SignInPopup() {
   useEffect(() => {
-    signIn('github', { callbackUrl: '/auth/popup-callback' });
+    signIn("github", { callbackUrl: "/auth/popup-callback" });
   }, []);
 
   return (

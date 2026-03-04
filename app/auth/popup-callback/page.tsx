@@ -1,19 +1,19 @@
-'use client';
+"use client";
 
-import { useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
+import { useEffect } from "react";
+import { Loader2 } from "lucide-react";
 
 export default function PopupCallback() {
   useEffect(() => {
     if (window.opener) {
       window.opener.postMessage(
-        { type: 'GITHUB_AUTH_SUCCESS' },
+        { type: "GITHUB_AUTH_SUCCESS" },
         window.location.origin,
       );
       window.close();
     } else {
       // Not opened as a popup — redirect home
-      window.location.href = '/';
+      window.location.href = "/";
     }
   }, []);
 

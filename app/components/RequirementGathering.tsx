@@ -1,17 +1,30 @@
-'use client';
+"use client";
 
-import { useState, useRef, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
-import { Send, User, Loader2, Sparkles, Pencil, Trash2, Plus, CheckCircle2, ExternalLink, ChevronDown, ChevronUp, X } from 'lucide-react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { useState, useRef, useEffect } from "react";
+import { useSession } from "next-auth/react";
+import {
+  Send,
+  User,
+  Loader2,
+  Sparkles,
+  Pencil,
+  Trash2,
+  Plus,
+  CheckCircle2,
+  ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  X,
+} from "lucide-react";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
 interface Message {
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
 }
 
@@ -36,15 +49,18 @@ interface RequirementGatheringProps {
   selectedRepo: { owner: { login: string }; name: string; full_name?: string };
 }
 
-export default function RequirementGathering({ selectedBranch, selectedRepo }: RequirementGatheringProps) {
+export default function RequirementGathering({
+  selectedBranch,
+  selectedRepo,
+}: RequirementGatheringProps) {
   const { data: session } = useSession();
   const [messages, setMessages] = useState<Message[]>([
     {
-      role: 'assistant',
-      content: `Hi! I see you've selected the branch "${selectedBranch}" in repository "${selectedRepo.name}". I'm here to help you create Jira user stories. Please tell me what feature or change you're planning to implement.`
-    }
+      role: "assistant",
+      content: `Hi! I see you've selected the branch "${selectedBranch}" in repository "${selectedRepo.name}". I'm here to help you create Jira user stories. Please tell me what feature or change you're planning to implement.`,
+    },
   ]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   // Review / approval state
@@ -58,39 +74,39 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   // Auto-resize the textarea as the user types
   const autoResize = () => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 160) + "px";
   };
 
   // Reset textarea height when input is cleared after send
   useEffect(() => {
-    if (input === '' && textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
+    if (input === "" && textareaRef.current) {
+      textareaRef.current.style.height = "auto";
     }
   }, [input]);
 
   const handleSendMessage = async () => {
     if (!input.trim() || isLoading) return;
 
-    const userMessage: Message = { role: 'user', content: input };
+    const userMessage: Message = { role: "user", content: input };
     setMessages((prev) => [...prev, userMessage]);
-    setInput('');
+    setInput("");
     setIsLoading(true);
 
     // Add empty assistant placeholder — will be filled by the stream
-    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [...messages, userMessage],
           branch: selectedBranch,
@@ -98,58 +114,69 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
         }),
       });
 
-      if (!response.body) throw new Error('No response body');
+      if (!response.body) throw new Error("No response body");
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let buffer = '';
-      let fullText = '';
+      let buffer = "";
+      let fullText = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
 
         for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
+          if (!line.startsWith("data: ")) continue;
           const data = line.slice(6);
-          if (data === '[DONE]') continue;
+          if (data === "[DONE]") continue;
 
           try {
             const event = JSON.parse(data);
 
-            if (event.type === 'text') {
+            if (event.type === "text") {
               fullText += event.content;
               // Strip JSON block from the live display
-              const displayText = fullText.replace(/```json[\s\S]*?```/g, '').trim();
+              const displayText = fullText
+                .replace(/```json[\s\S]*?```/g, "")
+                .trim();
               setMessages((prev) => {
                 const next = [...prev];
-                next[next.length - 1] = { role: 'assistant', content: displayText || fullText };
+                next[next.length - 1] = {
+                  role: "assistant",
+                  content: displayText || fullText,
+                };
                 return next;
               });
-            } else if (event.type === 'stories' && event.stories?.length > 0) {
-              const editable: EditableStory[] = event.stories.map((s: UserStory, i: number) => ({
-                ...s,
-                id: `story-${Date.now()}-${i}`,
-              }));
+            } else if (event.type === "stories" && event.stories?.length > 0) {
+              const editable: EditableStory[] = event.stories.map(
+                (s: UserStory, i: number) => ({
+                  ...s,
+                  id: `story-${Date.now()}-${i}`,
+                }),
+              );
               setReviewStories(editable);
               setExpandedStory(editable[0]?.id ?? null);
               setIsReviewing(true);
               // Finalise the assistant message without the JSON block
-              const cleanMsg = fullText.replace(/```json[\s\S]*?```/g, '').trim();
+              const cleanMsg = fullText
+                .replace(/```json[\s\S]*?```/g, "")
+                .trim();
               setMessages((prev) => {
                 const next = [...prev];
                 next[next.length - 1] = {
-                  role: 'assistant',
-                  content: cleanMsg || "I've generated the user stories based on our conversation. You can review them below.",
+                  role: "assistant",
+                  content:
+                    cleanMsg ||
+                    "I've generated the user stories based on our conversation. You can review them below.",
                 };
                 return next;
               });
-            } else if (event.type === 'error') {
-              throw new Error('Stream error');
+            } else if (event.type === "error") {
+              throw new Error("Stream error");
             }
           } catch {
             // skip malformed SSE line
@@ -159,7 +186,10 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
     } catch {
       setMessages((prev) => {
         const next = [...prev];
-        next[next.length - 1] = { role: 'assistant', content: "I'm sorry, I encountered an error. Please try again." };
+        next[next.length - 1] = {
+          role: "assistant",
+          content: "I'm sorry, I encountered an error. Please try again.",
+        };
         return next;
       });
     } finally {
@@ -168,23 +198,38 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
   };
 
   // Story editing helpers
-  const updateStory = (id: string, field: keyof UserStory, value: string | string[]) => {
-    setReviewStories((prev) => prev.map((s) => s.id === id ? { ...s, [field]: value } : s));
+  const updateStory = (
+    id: string,
+    field: keyof UserStory,
+    value: string | string[],
+  ) => {
+    setReviewStories((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, [field]: value } : s)),
+    );
   };
 
   const updateAC = (storyId: string, acIdx: number, value: string) => {
     setReviewStories((prev) =>
       prev.map((s) =>
         s.id === storyId
-          ? { ...s, acceptanceCriteria: s.acceptanceCriteria.map((ac, i) => i === acIdx ? value : ac) }
-          : s
-      )
+          ? {
+              ...s,
+              acceptanceCriteria: s.acceptanceCriteria.map((ac, i) =>
+                i === acIdx ? value : ac,
+              ),
+            }
+          : s,
+      ),
     );
   };
 
   const addAC = (storyId: string) => {
     setReviewStories((prev) =>
-      prev.map((s) => s.id === storyId ? { ...s, acceptanceCriteria: [...s.acceptanceCriteria, ''] } : s)
+      prev.map((s) =>
+        s.id === storyId
+          ? { ...s, acceptanceCriteria: [...s.acceptanceCriteria, ""] }
+          : s,
+      ),
     );
   };
 
@@ -192,9 +237,14 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
     setReviewStories((prev) =>
       prev.map((s) =>
         s.id === storyId
-          ? { ...s, acceptanceCriteria: s.acceptanceCriteria.filter((_, i) => i !== acIdx) }
-          : s
-      )
+          ? {
+              ...s,
+              acceptanceCriteria: s.acceptanceCriteria.filter(
+                (_, i) => i !== acIdx,
+              ),
+            }
+          : s,
+      ),
     );
   };
 
@@ -215,15 +265,15 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
         const repoOwner = selectedRepo.owner.login;
         const repoName = selectedRepo.name;
         const repoUrl = `https://github.com/${repoOwner}/${repoName}`;
-        const descriptionText = `${story.description}\n\nGitHub Repository: ${repoUrl} (branch: ${selectedBranch})\n\nAcceptance Criteria:\n${story.acceptanceCriteria.map((ac) => `- ${ac}`).join('\n')}`;
-        const res = await fetch('/api/create-jira-ticket', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const descriptionText = `${story.description}\n\nGitHub Repository: ${repoUrl} (branch: ${selectedBranch})\n\nAcceptance Criteria:\n${story.acceptanceCriteria.map((ac) => `- ${ac}`).join("\n")}`;
+        const res = await fetch("/api/create-jira-ticket", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             summary: story.summary,
             description: descriptionText,
-            issueType: 'Story',
-            labels: ['ai-agent', 'ai-generated', selectedBranch],
+            issueType: "Story",
+            labels: ["ai-agent", "ai-generated", selectedBranch],
             repoOwner,
             repoName,
             branch: selectedBranch,
@@ -233,9 +283,14 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
 
         if (res.ok) {
           const data = await res.json();
-          const key: string = data.data?.key ?? '';
-          const jiraBase = process.env.NEXT_PUBLIC_JIRA_BASE_URL ?? 'kuailabs.atlassian.net';
-          created.push({ key, summary: story.summary, url: `https://${jiraBase}/browse/${key}` });
+          const key: string = data.data?.key ?? "";
+          const jiraBase =
+            process.env.NEXT_PUBLIC_JIRA_BASE_URL ?? "kuailabs.atlassian.net";
+          created.push({
+            key,
+            summary: story.summary,
+            url: `https://${jiraBase}/browse/${key}`,
+          });
         }
       } catch {
         // skip failed ticket; continue with rest
@@ -243,10 +298,10 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
     }
 
     // Save to localStorage
-    const savedTickets = localStorage.getItem('generated_tickets');
+    const savedTickets = localStorage.getItem("generated_tickets");
     const existingTickets = savedTickets ? JSON.parse(savedTickets) : [];
     const updatedTickets = [...existingTickets, ...created];
-    localStorage.setItem('generated_tickets', JSON.stringify(updatedTickets));
+    localStorage.setItem("generated_tickets", JSON.stringify(updatedTickets));
 
     setCreatedTickets(created);
     setIsReviewing(false);
@@ -261,7 +316,8 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
           <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
           <div>
             <p className="font-semibold text-green-800">
-              {createdTickets.length} ticket{createdTickets.length > 1 ? 's' : ''} created successfully
+              {createdTickets.length} ticket
+              {createdTickets.length > 1 ? "s" : ""} created successfully
             </p>
             <p className="text-sm text-green-700 mt-0.5">
               The AI agent will pick them up automatically via the Jira webhook.
@@ -283,7 +339,9 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
                   <span className="font-mono text-xs font-bold text-[#6E3482] bg-[#F5EBFA] px-2 py-1 rounded flex-shrink-0">
                     {t.key}
                   </span>
-                  <span className="text-sm text-slate-700 truncate">{t.summary}</span>
+                  <span className="text-sm text-slate-700 truncate">
+                    {t.summary}
+                  </span>
                 </div>
                 <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-[#6E3482] flex-shrink-0 ml-2 transition-colors" />
               </a>
@@ -293,10 +351,12 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
 
         <button
           onClick={() => {
-            setMessages([{
-              role: 'assistant',
-              content: `Hi! I see you've selected the branch "${selectedBranch}" in repository "${selectedRepo.name}". I'm here to help you create Jira user stories. Please tell me what feature or change you're planning to implement.`
-            }]);
+            setMessages([
+              {
+                role: "assistant",
+                content: `Hi! I see you've selected the branch "${selectedBranch}" in repository "${selectedRepo.name}". I'm here to help you create Jira user stories. Please tell me what feature or change you're planning to implement.`,
+              },
+            ]);
             setCreatedTickets([]);
             setReviewStories([]);
           }}
@@ -328,7 +388,10 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
           {reviewStories.map((story) => {
             const isExpanded = expandedStory === story.id;
             return (
-              <div key={story.id} className="rounded-xl border border-[#E7DBEF] bg-white shadow-[0_2px_10px_rgba(73,34,91,0.05)] overflow-hidden">
+              <div
+                key={story.id}
+                className="rounded-xl border border-[#E7DBEF] bg-white shadow-[0_2px_10px_rgba(73,34,91,0.05)] overflow-hidden"
+              >
                 {/* Header row */}
                 <div
                   className="flex items-center gap-3 p-4 cursor-pointer hover:bg-slate-50 transition-colors"
@@ -340,21 +403,27 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
                   <input
                     className="flex-1 text-sm font-semibold text-slate-900 bg-transparent border-none outline-none min-w-0"
                     value={story.summary}
-                    onChange={(e) => updateStory(story.id, 'summary', e.target.value)}
+                    onChange={(e) =>
+                      updateStory(story.id, "summary", e.target.value)
+                    }
                     onClick={(e) => e.stopPropagation()}
                     placeholder="Story summary..."
                   />
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <button
-                      onClick={(e) => { e.stopPropagation(); removeStory(story.id); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeStory(story.id);
+                      }}
                       className="p-1 text-slate-400 hover:text-red-500 transition-colors rounded"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
-                    {isExpanded
-                      ? <ChevronUp className="w-4 h-4 text-slate-400" />
-                      : <ChevronDown className="w-4 h-4 text-slate-400" />
-                    }
+                    {isExpanded ? (
+                      <ChevronUp className="w-4 h-4 text-slate-400" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-slate-400" />
+                    )}
                   </div>
                 </div>
 
@@ -369,7 +438,9 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
                         className="w-full text-sm text-slate-700 border border-slate-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#6E3482]/20 focus:border-[#6E3482] resize-none transition-all"
                         rows={4}
                         value={story.description}
-                        onChange={(e) => updateStory(story.id, 'description', e.target.value)}
+                        onChange={(e) =>
+                          updateStory(story.id, "description", e.target.value)
+                        }
                         placeholder="Story description..."
                       />
                     </div>
@@ -385,7 +456,9 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
                             <input
                               className="flex-1 text-sm text-slate-700 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#6E3482]/20 focus:border-[#6E3482] transition-all"
                               value={ac}
-                              onChange={(e) => updateAC(story.id, idx, e.target.value)}
+                              onChange={(e) =>
+                                updateAC(story.id, idx, e.target.value)
+                              }
                               placeholder={`Criterion ${idx + 1}…`}
                             />
                             <button
@@ -424,7 +497,8 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
           ) : (
             <>
               <Pencil className="w-4 h-4" />
-              Create {reviewStories.length} Ticket{reviewStories.length > 1 ? 's' : ''} in Jira
+              Create {reviewStories.length} Ticket
+              {reviewStories.length > 1 ? "s" : ""} in Jira
             </>
           )}
         </button>
@@ -441,30 +515,39 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
             key={index}
             className={cn(
               "flex w-full animate-in fade-in slide-in-from-bottom-2 duration-300",
-              msg.role === 'user' ? "justify-end" : "justify-start"
+              msg.role === "user" ? "justify-end" : "justify-start",
             )}
           >
             <div
               className={cn(
                 "max-w-[82%] rounded-2xl px-4 py-3.5 text-sm shadow-sm",
-                msg.role === 'user'
+                msg.role === "user"
                   ? "bg-[#6E3482] text-white rounded-br-sm"
-                  : "bg-white text-slate-800 border border-[#E7DBEF] rounded-bl-sm"
+                  : "bg-white text-slate-800 border border-[#E7DBEF] rounded-bl-sm",
               )}
             >
               <div
                 className="flex items-center gap-1.5 mb-1.5 text-[10px] font-semibold uppercase tracking-widest"
-                style={{ color: msg.role === 'user' ? 'rgba(255,255,255,0.55)' : '#A56ABD' }}
+                style={{
+                  color:
+                    msg.role === "user" ? "rgba(255,255,255,0.55)" : "#A56ABD",
+                }}
               >
-                {msg.role === 'user' ? <User className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
-                <span>{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
+                {msg.role === "user" ? (
+                  <User className="w-3 h-3" />
+                ) : (
+                  <Sparkles className="w-3 h-3" />
+                )}
+                <span>{msg.role === "user" ? "You" : "AI Assistant"}</span>
               </div>
-              <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>
+              <div className="whitespace-pre-wrap leading-relaxed">
+                {msg.content}
+              </div>
             </div>
           </div>
         ))}
 
-        {isLoading && messages[messages.length - 1]?.content === '' && (
+        {isLoading && messages[messages.length - 1]?.content === "" && (
           <div className="flex justify-start w-full animate-in fade-in duration-300">
             <div className="bg-white border border-[#E7DBEF] rounded-2xl rounded-bl-sm px-4 py-3.5 shadow-sm flex items-center gap-3">
               <Loader2 className="w-4 h-4 animate-spin text-[#6E3482]" />
@@ -481,12 +564,15 @@ export default function RequirementGathering({ selectedBranch, selectedRepo }: R
             ref={textareaRef}
             rows={1}
             className="flex-1 px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:border-[#6E3482] focus:ring-2 focus:ring-[#6E3482]/20 transition-all placeholder:text-slate-400 text-sm resize-none leading-relaxed"
-            style={{ minHeight: '46px', maxHeight: '160px', overflowY: 'auto' }}
+            style={{ minHeight: "46px", maxHeight: "160px", overflowY: "auto" }}
             placeholder="Describe the feature or change… (Enter to send, Shift+Enter for new line)"
             value={input}
-            onChange={(e) => { setInput(e.target.value); autoResize(); }}
+            onChange={(e) => {
+              setInput(e.target.value);
+              autoResize();
+            }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 handleSendMessage();
               }

@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useRef } from 'react';
-import { ChevronDown, GitBranch, Search, Check, Loader2 } from 'lucide-react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { useState, useEffect, useRef } from "react";
+import { ChevronDown, GitBranch, Search, Check, Loader2 } from "lucide-react";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -17,7 +17,7 @@ export default function BranchSelector({ onSelect }: BranchSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const [branches, setBranches] = useState<string[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -25,13 +25,13 @@ export default function BranchSelector({ onSelect }: BranchSelectorProps) {
     const fetchBranches = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch('/api/branches');
+        const response = await fetch("/api/branches");
         const data = await response.json();
         if (data.branches) {
           setBranches(data.branches);
         }
       } catch (error) {
-        console.error('Failed to fetch branches:', error);
+        console.error("Failed to fetch branches:", error);
       } finally {
         setIsLoading(false);
       }
@@ -42,17 +42,20 @@ export default function BranchSelector({ onSelect }: BranchSelectorProps) {
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
         setIsOpen(false);
       }
     }
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const filteredBranches = branches.filter((branch) =>
-    branch.toLowerCase().includes(searchQuery.toLowerCase())
+    branch.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   const handleSelect = (branch: string) => {
@@ -72,24 +75,38 @@ export default function BranchSelector({ onSelect }: BranchSelectorProps) {
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
           "w-full flex items-center justify-between px-4 py-3 bg-white border rounded-xl shadow-sm transition-all duration-200",
-          isOpen 
-            ? "border-primary ring-2 ring-primary/20 shadow-md" 
+          isOpen
+            ? "border-primary ring-2 ring-primary/20 shadow-md"
             : "border-slate-200 hover:border-primary/50 hover:shadow-md",
-          "text-left focus:outline-none"
+          "text-left focus:outline-none",
         )}
       >
         <div className="flex items-center gap-3 truncate">
-          <div className={cn(
-            "p-1.5 rounded-md transition-colors",
-            selectedBranch ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-500"
-          )}>
+          <div
+            className={cn(
+              "p-1.5 rounded-md transition-colors",
+              selectedBranch
+                ? "bg-primary/10 text-primary"
+                : "bg-slate-100 text-slate-500",
+            )}
+          >
             <GitBranch className="w-4 h-4" />
           </div>
-          <span className={cn("block truncate font-medium", !selectedBranch && "text-slate-400")}>
+          <span
+            className={cn(
+              "block truncate font-medium",
+              !selectedBranch && "text-slate-400",
+            )}
+          >
             {selectedBranch || "Select a branch..."}
           </span>
         </div>
-        <ChevronDown className={cn("w-4 h-4 text-slate-400 transition-transform duration-200", isOpen && "rotate-180 text-primary")} />
+        <ChevronDown
+          className={cn(
+            "w-4 h-4 text-slate-400 transition-transform duration-200",
+            isOpen && "rotate-180 text-primary",
+          )}
+        />
       </button>
 
       {isOpen && (
@@ -107,7 +124,7 @@ export default function BranchSelector({ onSelect }: BranchSelectorProps) {
               />
             </div>
           </div>
-          
+
           <div className="max-h-60 overflow-y-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent">
             {isLoading ? (
               <div className="flex items-center justify-center py-8 text-slate-500">
@@ -126,13 +143,20 @@ export default function BranchSelector({ onSelect }: BranchSelectorProps) {
                       onClick={() => handleSelect(branch)}
                       className={cn(
                         "w-full flex items-center justify-between px-4 py-3 text-sm transition-all border-l-2",
-                        selectedBranch === branch 
-                          ? "border-primary bg-primary-surface/50 text-primary-dark font-medium" 
-                          : "border-transparent text-slate-600 hover:bg-slate-50 hover:border-slate-300"
+                        selectedBranch === branch
+                          ? "border-primary bg-primary-surface/50 text-primary-dark font-medium"
+                          : "border-transparent text-slate-600 hover:bg-slate-50 hover:border-slate-300",
                       )}
                     >
                       <div className="flex items-center gap-3 truncate">
-                        <GitBranch className={cn("w-4 h-4", selectedBranch === branch ? "text-primary" : "text-slate-400")} />
+                        <GitBranch
+                          className={cn(
+                            "w-4 h-4",
+                            selectedBranch === branch
+                              ? "text-primary"
+                              : "text-slate-400",
+                          )}
+                        />
                         <span className="truncate">{branch}</span>
                       </div>
                       {selectedBranch === branch && (

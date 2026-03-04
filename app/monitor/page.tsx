@@ -1,7 +1,17 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useCallback } from 'react';
-import { Loader2, RefreshCw, ExternalLink, GitPullRequest, Clock, CheckCircle2, AlertCircle, CircleDot, ArrowLeft } from 'lucide-react';
+import { useState, useEffect, useCallback } from "react";
+import {
+  Loader2,
+  RefreshCw,
+  ExternalLink,
+  GitPullRequest,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
+  CircleDot,
+  ArrowLeft,
+} from "lucide-react";
 
 interface PipelineState {
   ticketId: string;
@@ -24,22 +34,51 @@ interface Ticket {
   pipeline: PipelineState | null;
 }
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  'In Progress':      { label: 'In Progress',   color: 'bg-blue-100 text-blue-700 border-blue-200',   icon: <CircleDot className="w-3 h-3" /> },
-  'In Review':        { label: 'In Review',      color: 'bg-purple-100 text-purple-700 border-purple-200', icon: <GitPullRequest className="w-3 h-3" /> },
-  'Done':             { label: 'Done',            color: 'bg-green-100 text-green-700 border-green-200', icon: <CheckCircle2 className="w-3 h-3" /> },
-  'To Do':            { label: 'To Do',           color: 'bg-slate-100 text-slate-600 border-slate-200', icon: <Clock className="w-3 h-3" /> },
-  'Selected for Development': { label: 'Queued', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: <AlertCircle className="w-3 h-3" /> },
+const STATUS_CONFIG: Record<
+  string,
+  { label: string; color: string; icon: React.ReactNode }
+> = {
+  "In Progress": {
+    label: "In Progress",
+    color: "bg-blue-100 text-blue-700 border-blue-200",
+    icon: <CircleDot className="w-3 h-3" />,
+  },
+  "In Review": {
+    label: "In Review",
+    color: "bg-purple-100 text-purple-700 border-purple-200",
+    icon: <GitPullRequest className="w-3 h-3" />,
+  },
+  Done: {
+    label: "Done",
+    color: "bg-green-100 text-green-700 border-green-200",
+    icon: <CheckCircle2 className="w-3 h-3" />,
+  },
+  "To Do": {
+    label: "To Do",
+    color: "bg-slate-100 text-slate-600 border-slate-200",
+    icon: <Clock className="w-3 h-3" />,
+  },
+  "Selected for Development": {
+    label: "Queued",
+    color: "bg-amber-100 text-amber-700 border-amber-200",
+    icon: <AlertCircle className="w-3 h-3" />,
+  },
 };
 
 function getStatusConfig(status: string) {
-  return STATUS_CONFIG[status] ?? { label: status, color: 'bg-slate-100 text-slate-600 border-slate-200', icon: <CircleDot className="w-3 h-3" /> };
+  return (
+    STATUS_CONFIG[status] ?? {
+      label: status,
+      color: "bg-slate-100 text-slate-600 border-slate-200",
+      icon: <CircleDot className="w-3 h-3" />,
+    }
+  );
 }
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return 'just now';
+  if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
@@ -54,7 +93,8 @@ function elapsed(ms: number): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
-const JIRA_BASE = process.env.NEXT_PUBLIC_JIRA_BASE_URL ?? 'kuailabs.atlassian.net';
+const JIRA_BASE =
+  process.env.NEXT_PUBLIC_JIRA_BASE_URL ?? "kuailabs.atlassian.net";
 
 export default function MonitorPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -66,46 +106,49 @@ export default function MonitorPage() {
   const fetchTickets = useCallback(async () => {
     try {
       // 1. Load local tickets first (backup/offline mode)
-      const localRaw = localStorage.getItem('generated_tickets');
-      const localTickets: { key: string; summary: string }[] = localRaw ? JSON.parse(localRaw) : [];
+      const localRaw = localStorage.getItem("generated_tickets");
+      const localTickets: { key: string; summary: string }[] = localRaw
+        ? JSON.parse(localRaw)
+        : [];
 
       // 2. Try to fetch fresh data from API
-      const res = await fetch('/api/tickets');
-      if (!res.ok) throw new Error('Failed to fetch tickets');
-      
+      const res = await fetch("/api/tickets");
+      if (!res.ok) throw new Error("Failed to fetch tickets");
+
       const data = await res.json();
       const apiTickets: Ticket[] = data.tickets ?? [];
 
       // 3. Merge: Use API tickets, but ensure any locally created ones are included if missing from API (unlikely but safe)
       // Actually, for now, let's just use API tickets as the source of truth for status/pipeline,
       // but if API fails, we can show local tickets with "Unknown" status.
-      
+
       setTickets(apiTickets);
       setLastRefresh(new Date());
       setError(null);
     } catch (e: unknown) {
       console.error("Fetch failed, falling back to local storage", e);
-      
+
       // Fallback: Construct minimal ticket objects from localStorage
-      const localRaw = localStorage.getItem('generated_tickets');
+      const localRaw = localStorage.getItem("generated_tickets");
       if (localRaw) {
-        const localTickets: { key: string; summary: string }[] = JSON.parse(localRaw);
-        const fallbackTickets: Ticket[] = localTickets.map(t => ({
+        const localTickets: { key: string; summary: string }[] =
+          JSON.parse(localRaw);
+        const fallbackTickets: Ticket[] = localTickets.map((t) => ({
           key: t.key,
           summary: t.summary,
-          status: 'Unknown',
+          status: "Unknown",
           created: new Date().toISOString(), // Mock
           updated: new Date().toISOString(), // Mock
           priority: null,
           labels: [],
           prUrl: null,
-          pipeline: null
+          pipeline: null,
         }));
         // Sort by key (assuming newer keys are higher/lexicographically larger or just prepend)
         setTickets(fallbackTickets.reverse());
         setError(null); // Clear error since we have partial data
       } else {
-         setError(e instanceof Error ? e.message : 'Unknown error');
+        setError(e instanceof Error ? e.message : "Unknown error");
       }
     } finally {
       setIsLoading(false);
@@ -131,7 +174,6 @@ export default function MonitorPage() {
   return (
     <main className="min-h-screen bg-[#F5EBFA] p-8">
       <div className="max-w-5xl mx-auto space-y-8">
-
         {/* Header */}
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -142,7 +184,9 @@ export default function MonitorPage() {
               <ArrowLeft className="w-4 h-4" /> Back
             </a>
             <div>
-              <h1 className="text-3xl font-extrabold text-[#49225B] tracking-tight">Ticket Monitor</h1>
+              <h1 className="text-3xl font-extrabold text-[#49225B] tracking-tight">
+                Ticket Monitor
+              </h1>
               <p className="text-sm text-[#6E3482]/70 mt-0.5">
                 Live view of AI-generated tickets and pipeline progress
               </p>
@@ -155,11 +199,16 @@ export default function MonitorPage() {
               </span>
             )}
             <button
-              onClick={() => { setIsLoading(true); fetchTickets(); }}
+              onClick={() => {
+                setIsLoading(true);
+                fetchTickets();
+              }}
               disabled={isLoading}
               className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-[#49225B] bg-white border border-[#E7DBEF] rounded-lg hover:bg-[#F5EBFA] transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw
+                className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`}
+              />
               Refresh
             </button>
           </div>
@@ -185,9 +234,14 @@ export default function MonitorPage() {
                 </h2>
                 <div className="space-y-3">
                   {running.map((ticket) => {
-                    const elapsedMs = ticket.pipeline ? now - ticket.pipeline.startedAt : 0;
+                    const elapsedMs = ticket.pipeline
+                      ? now - ticket.pipeline.startedAt
+                      : 0;
                     return (
-                      <div key={ticket.key} className="rounded-xl border border-[#E7DBEF] bg-white shadow-[0_2px_10px_rgba(73,34,91,0.05)] p-5">
+                      <div
+                        key={ticket.key}
+                        className="rounded-xl border border-[#E7DBEF] bg-white shadow-[0_2px_10px_rgba(73,34,91,0.05)] p-5"
+                      >
                         <div className="flex items-start justify-between gap-4">
                           <div className="flex items-start gap-3 min-w-0">
                             <div className="flex-shrink-0 mt-0.5">
@@ -206,7 +260,9 @@ export default function MonitorPage() {
                                 >
                                   {ticket.key}
                                 </a>
-                                <span className="text-sm font-medium text-slate-900 truncate">{ticket.summary}</span>
+                                <span className="text-sm font-medium text-slate-900 truncate">
+                                  {ticket.summary}
+                                </span>
                               </div>
                               <div className="flex items-center gap-2 mt-2">
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border bg-blue-100 text-blue-700 border-blue-200">
@@ -214,7 +270,8 @@ export default function MonitorPage() {
                                   {ticket.pipeline?.nodeLabel ?? ticket.status}
                                 </span>
                                 <span className="text-xs text-slate-500 flex items-center gap-1">
-                                  <Clock className="w-3 h-3" /> {elapsed(elapsedMs)}
+                                  <Clock className="w-3 h-3" />{" "}
+                                  {elapsed(elapsedMs)}
                                 </span>
                               </div>
                             </div>
@@ -244,17 +301,27 @@ export default function MonitorPage() {
               </h2>
               {rest.length === 0 ? (
                 <div className="rounded-xl border border-[#E7DBEF] bg-white p-12 text-center">
-                  <p className="text-slate-500 text-sm">No tickets yet. Create some from the main page.</p>
+                  <p className="text-slate-500 text-sm">
+                    No tickets yet. Create some from the main page.
+                  </p>
                 </div>
               ) : (
                 <div className="rounded-xl border border-[#E7DBEF] bg-white shadow-[0_2px_10px_rgba(73,34,91,0.05)] overflow-hidden">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-[#E7DBEF] bg-[#F5EBFA]/50">
-                        <th className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[#49225B]/60 w-28">Key</th>
-                        <th className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[#49225B]/60">Summary</th>
-                        <th className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[#49225B]/60 w-36">Status</th>
-                        <th className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[#49225B]/60 w-28">Updated</th>
+                        <th className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[#49225B]/60 w-28">
+                          Key
+                        </th>
+                        <th className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[#49225B]/60">
+                          Summary
+                        </th>
+                        <th className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[#49225B]/60 w-36">
+                          Status
+                        </th>
+                        <th className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[#49225B]/60 w-28">
+                          Updated
+                        </th>
                         <th className="px-5 py-3 w-16" />
                       </tr>
                     </thead>
@@ -262,7 +329,10 @@ export default function MonitorPage() {
                       {rest.map((ticket) => {
                         const sc = getStatusConfig(ticket.status);
                         return (
-                          <tr key={ticket.key} className="hover:bg-slate-50 transition-colors">
+                          <tr
+                            key={ticket.key}
+                            className="hover:bg-slate-50 transition-colors"
+                          >
                             <td className="px-5 py-3.5">
                               <a
                                 href={`https://${JIRA_BASE}/browse/${ticket.key}`}
@@ -273,17 +343,28 @@ export default function MonitorPage() {
                                 {ticket.key}
                               </a>
                             </td>
-                            <td className="px-5 py-3.5 text-slate-700 max-w-xs truncate">{ticket.summary}</td>
+                            <td className="px-5 py-3.5 text-slate-700 max-w-xs truncate">
+                              {ticket.summary}
+                            </td>
                             <td className="px-5 py-3.5">
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${sc.color}`}>
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${sc.color}`}
+                              >
                                 {sc.icon} {sc.label}
                               </span>
                             </td>
-                            <td className="px-5 py-3.5 text-xs text-slate-500">{timeAgo(ticket.updated)}</td>
+                            <td className="px-5 py-3.5 text-xs text-slate-500">
+                              {timeAgo(ticket.updated)}
+                            </td>
                             <td className="px-5 py-3.5">
                               <div className="flex items-center gap-2">
                                 {ticket.prUrl && (
-                                  <a href={ticket.prUrl} target="_blank" rel="noopener noreferrer" title="View PR">
+                                  <a
+                                    href={ticket.prUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title="View PR"
+                                  >
                                     <GitPullRequest className="w-4 h-4 text-slate-400 hover:text-[#6E3482] transition-colors" />
                                   </a>
                                 )}

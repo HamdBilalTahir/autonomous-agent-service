@@ -59,10 +59,7 @@ export function createTokenUsageCallback(usageRef: {
         usage.candidatesTokenCount ??
         0;
       usageRef.total +=
-        usage.totalTokens ??
-        usage.total_tokens ??
-        usage.totalTokenCount ??
-        0;
+        usage.totalTokens ?? usage.total_tokens ?? usage.totalTokenCount ?? 0;
     }
 
     // Called for BaseLLM subclasses
@@ -103,22 +100,24 @@ const PRICING = {
 // Then later "$4 per 1M input tokens / $18.00 per 1M output tokens (for tokens > 200k)"
 // I will use 2/12 and 4/18.
 
-const NODE_MODEL_MAPPING: Record<string, "GEMINI_3_1_PRO" | "GEMINI_3_1_FLASH"> =
-  {
-    // Pro Nodes
-    frontendEngineerNode: "GEMINI_3_1_PRO",
-    emNode: "GEMINI_3_1_PRO",
-    designNode: "GEMINI_3_1_PRO",
-    pmNode: "GEMINI_3_1_PRO",
-    validationNode: "GEMINI_3_1_PRO",
+const NODE_MODEL_MAPPING: Record<
+  string,
+  "GEMINI_3_1_PRO" | "GEMINI_3_1_FLASH"
+> = {
+  // Pro Nodes
+  frontendEngineerNode: "GEMINI_3_1_PRO",
+  emNode: "GEMINI_3_1_PRO",
+  designNode: "GEMINI_3_1_PRO",
+  pmNode: "GEMINI_3_1_PRO",
+  validationNode: "GEMINI_3_1_PRO",
 
-    // Flash Nodes
-    architectureNode: "GEMINI_3_1_FLASH",
-    triageNode: "GEMINI_3_1_FLASH",
-    updateJiraMetadataNode: "GEMINI_3_1_FLASH",
-    updateJiraStatusNode: "GEMINI_3_1_FLASH",
-    createPrNode: "GEMINI_3_1_FLASH",
-  };
+  // Flash Nodes
+  architectureNode: "GEMINI_3_1_FLASH",
+  triageNode: "GEMINI_3_1_FLASH",
+  updateJiraMetadataNode: "GEMINI_3_1_FLASH",
+  updateJiraStatusNode: "GEMINI_3_1_FLASH",
+  createPrNode: "GEMINI_3_1_FLASH",
+};
 
 /**
  * Logs a structured performance report for a completed graph run.
@@ -167,11 +166,13 @@ export function logPerformanceReport(
       });
       Object.keys(metrics?.nodeTokenUsage || {}).forEach((key) => {
         if (key.startsWith(`${nodeName}_`)) {
-          const usage = metrics?.nodeTokenUsage[key] as {
-            prompt: number;
-            completion: number;
-            total: number;
-          } | undefined;
+          const usage = metrics?.nodeTokenUsage[key] as
+            | {
+                prompt: number;
+                completion: number;
+                total: number;
+              }
+            | undefined;
           if (usage) {
             tokenUsage.prompt += usage.prompt;
             tokenUsage.completion += usage.completion;
@@ -180,7 +181,11 @@ export function logPerformanceReport(
         }
       });
 
-      const cost = calculateLLMCost(nodeName, tokenUsage.prompt, tokenUsage.completion);
+      const cost = calculateLLMCost(
+        nodeName,
+        tokenUsage.prompt,
+        tokenUsage.completion,
+      );
       totalCost += cost;
 
       return {

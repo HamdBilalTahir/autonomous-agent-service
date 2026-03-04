@@ -4,7 +4,11 @@ import type { ArchitectureProfile } from "../schema";
 import { extractTokenUsage } from "../metrics-utils";
 import { withConcurrency } from "../concurrency";
 import { verifyImports } from "../import-guard";
-import { ExecutionPlanSchema, ValidationSchema, FilePatchSchema } from "../schema";
+import {
+  ExecutionPlanSchema,
+  ValidationSchema,
+  FilePatchSchema,
+} from "../schema";
 import { getValidationSystemPrompt } from "../prompts/validationPrompts";
 import { checkTsSyntax } from "../ts-syntax-check";
 import { setPipelineState } from "../../pipeline-state";
@@ -196,7 +200,11 @@ export function createEngineerNode(config: EngineerConfig) {
 
   return async function engineerNode(state: typeof AgentState.State) {
     const startTime = Date.now();
-    await setPipelineState(state.ticketId, state.ticketSummary, "frontendEngineerNode");
+    await setPipelineState(
+      state.ticketId,
+      state.ticketSummary,
+      "frontendEngineerNode",
+    );
     const {
       executionPlan,
       projectContext,
@@ -267,11 +275,20 @@ Generate a concise Execution Plan.
           ...result,
           engineerType: result.engineerType ?? "frontend",
         };
-        console.log(`✅ [${label}][${state.ticketId}] Lightweight Plan Generated:`);
-        console.log(`   Files to Create: ${result.newFilesToCreate?.join(", ") || "None"}`);
-        console.log(`   Files to Modify: ${result.filesToModify?.join(", ") || "None"}`);
+        console.log(
+          `✅ [${label}][${state.ticketId}] Lightweight Plan Generated:`,
+        );
+        console.log(
+          `   Files to Create: ${result.newFilesToCreate?.join(", ") || "None"}`,
+        );
+        console.log(
+          `   Files to Modify: ${result.filesToModify?.join(", ") || "None"}`,
+        );
       } catch (e) {
-        console.error(`❌ [${label}][${state.ticketId}] Failed to generate lightweight plan.`, e);
+        console.error(
+          `❌ [${label}][${state.ticketId}] Failed to generate lightweight plan.`,
+          e,
+        );
       }
     }
 
@@ -304,10 +321,14 @@ Generate a concise Execution Plan.
       );
     } else {
       filesToGenerate = allFiles;
-      console.log(`🚀 [${label}][${state.ticketId}] Initial Code Generation (Round ${nextRound}).`);
+      console.log(
+        `🚀 [${label}][${state.ticketId}] Initial Code Generation (Round ${nextRound}).`,
+      );
     }
 
-    console.log(`\n💻 [${label}][${state.ticketId}] Starting generation (Round ${nextRound})...`);
+    console.log(
+      `\n💻 [${label}][${state.ticketId}] Starting generation (Round ${nextRound})...`,
+    );
 
     const baseFiles = surgicalContext ? checkpointFiles : existingCode;
     const generatedCode: { filePath: string; fileContent: string }[] =
@@ -386,7 +407,13 @@ Generate a concise Execution Plan.
 
       const seen = new Set<string>();
       const result: string[] = [];
-      for (const line of [...bucket1, ...bucket2, ...bucket3, ...bucket4, ...bucket5]) {
+      for (const line of [
+        ...bucket1,
+        ...bucket2,
+        ...bucket3,
+        ...bucket4,
+        ...bucket5,
+      ]) {
         if (!seen.has(line) && result.length < 120) {
           seen.add(line);
           result.push(line);
@@ -466,7 +493,12 @@ ${(executionPlan?.filesToModify || []).join("\n")}
         const hasCrossFileError = currentErrors.some((e) =>
           CROSS_FILE_PATTERN.test(e),
         );
-        if (attempt === 0 && previousContent && currentErrors.length > 0 && !hasCrossFileError) {
+        if (
+          attempt === 0 &&
+          previousContent &&
+          currentErrors.length > 0 &&
+          !hasCrossFileError
+        ) {
           let patchContent: string | null = null;
 
           try {
@@ -475,7 +507,10 @@ ${(executionPlan?.filesToModify || []).join("\n")}
               currentErrors,
             );
             const patchResult = await patchModel.invoke([
-              ["user", resolvedPatchPrompt(filePath, contextSections, currentErrors)],
+              [
+                "user",
+                resolvedPatchPrompt(filePath, contextSections, currentErrors),
+              ],
             ]);
 
             const patchUsage = extractTokenUsage(patchResult.raw);
@@ -484,10 +519,11 @@ ${(executionPlan?.filesToModify || []).join("\n")}
             fileUsage.total += patchUsage.total;
 
             if (patchResult.parsed?.patches?.length) {
-              const { result: patched, applied, skipped } = applyPatches(
-                previousContent,
-                patchResult.parsed.patches,
-              );
+              const {
+                result: patched,
+                applied,
+                skipped,
+              } = applyPatches(previousContent, patchResult.parsed.patches);
               console.log(
                 `   [${label}][${state.ticketId}] ${fileTag} ${filePath} patch: ${applied}/${applied + skipped} patches applied`,
               );
@@ -497,7 +533,9 @@ ${(executionPlan?.filesToModify || []).join("\n")}
                 effectiveExecutionPlan!,
                 state.codebaseTree || "",
               );
-              const syntaxErrs = importErr ? [] : checkTsSyntax(filePath, patched);
+              const syntaxErrs = importErr
+                ? []
+                : checkTsSyntax(filePath, patched);
 
               if (!importErr && syntaxErrs.length === 0) {
                 patchContent = patched;
@@ -742,7 +780,9 @@ ${(executionPlan?.filesToModify || []).join("\n")}
       totalRoundCount: nextTotalRound,
       errorAttemptHistory: newHistory,
       filesNeedingRevision:
-        uniqueFiles.length > 0 ? uniqueFiles : (state.filesNeedingRevision ?? []),
+        uniqueFiles.length > 0
+          ? uniqueFiles
+          : (state.filesNeedingRevision ?? []),
       metrics: {
         nodeExecutionTimes: {
           [`${config.engineerType}EngineerNode_r${nextRound}`]: duration,
